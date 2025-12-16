@@ -1,8 +1,106 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@clerk/nextjs";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PlayCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  PlayCircle,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  RefreshCw,
+} from "lucide-react";
+import Link from "next/link";
+import { api } from "@/lib/api";
+
+interface TestRun {
+  id: string;
+  name: string;
+  status: "running" | "completed" | "cancelled" | "failed";
+  createdAt: string;
+  stats: {
+    total: number;
+    completed: number;
+    passed: number;
+    failed: number;
+  };
+}
+
+const statusColors: Record<string, string> = {
+  running: "bg-blue-100 text-blue-800",
+  completed: "bg-green-100 text-green-800",
+  cancelled: "bg-gray-100 text-gray-800",
+  failed: "bg-red-100 text-red-800",
+};
+
+const statusIcons: Record<string, React.ReactNode> = {
+  running: <Loader2 className="h-4 w-4 animate-spin" />,
+  completed: <CheckCircle2 className="h-4 w-4" />,
+  cancelled: <Clock className="h-4 w-4" />,
+  failed: <XCircle className="h-4 w-4" />,
+};
 
 export default function TestRunsPage() {
+  const { getToken } = useAuth();
+  const [testRuns, setTestRuns] = useState<TestRun[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTestRuns = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${api.baseUrl}/api/test-execution/runs`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setTestRuns(data.runs || []);
+      } else {
+        setError("Failed to fetch test runs");
+      }
+    } catch (err) {
+      console.error("Error fetching test runs:", err);
+      setError("Failed to fetch test runs");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    fetchTestRuns();
+  }, [fetchTestRuns]);
+
+  // Poll for updates if there are running tests
+  useEffect(() => {
+    if (testRuns.some((r) => r.status === "running")) {
+      const interval = setInterval(fetchTestRuns, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [testRuns, fetchTestRuns]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -12,29 +110,113 @@ export default function TestRunsPage() {
             View and manage your test execution history
           </p>
         </div>
-        <Button>
-          <PlayCircle className="mr-2 h-4 w-4" />
-          Start New Run
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={fetchTestRuns}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+          <Link href="/dashboard/test-runs/new">
+            <Button>
+              <PlayCircle className="mr-2 h-4 w-4" />
+              Start New Run
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>No Test Runs</CardTitle>
-          <CardDescription>
-            Run your test suite to see execution results here
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground mb-4">
-            Test runs will show detailed results including pass/fail status, audio transcripts, latency metrics, and conversation analysis.
-          </p>
-          <Button>
-            <PlayCircle className="mr-2 h-4 w-4" />
-            Run Your First Test
-          </Button>
-        </CardContent>
-      </Card>
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg">{error}</div>
+      )}
+
+      {testRuns.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No Test Runs</CardTitle>
+            <CardDescription>
+              Run your test suite to see execution results here
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground mb-4">
+              Test runs will show detailed results including pass/fail status,
+              audio transcripts, latency metrics, and conversation analysis.
+            </p>
+            <Link href="/dashboard/test-runs/new">
+              <Button>
+                <PlayCircle className="mr-2 h-4 w-4" />
+                Run Your First Test
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {testRuns.map((run) => (
+            <Link key={run.id} href={`/dashboard/test-runs/${run.id}`}>
+              <Card className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-3">
+                        <h3 className="font-semibold text-lg">{run.name}</h3>
+                        <Badge
+                          className={`${statusColors[run.status]} flex items-center gap-1`}
+                        >
+                          {statusIcons[run.status]}
+                          {run.status.toUpperCase()}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(run.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-8">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold">
+                          {run.stats.total}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Total
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {run.stats.passed}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Passed
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-red-600">
+                          {run.stats.failed}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Failed
+                        </div>
+                      </div>
+                      <div className="w-32">
+                        <Progress
+                          value={
+                            run.stats.total > 0
+                              ? (run.stats.completed / run.stats.total) * 100
+                              : 0
+                          }
+                          className="h-2"
+                        />
+                        <div className="text-xs text-muted-foreground mt-1 text-center">
+                          {run.stats.completed} / {run.stats.total} completed
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
