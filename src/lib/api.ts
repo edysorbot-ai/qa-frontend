@@ -18,9 +18,14 @@ export const api = {
     integrations: {
       list: `${API_BASE_URL}/api/integrations`,
       create: `${API_BASE_URL}/api/integrations`,
+      validate: `${API_BASE_URL}/api/integrations/validate`,
       get: (id: string) => `${API_BASE_URL}/api/integrations/${id}`,
       update: (id: string) => `${API_BASE_URL}/api/integrations/${id}`,
       delete: (id: string) => `${API_BASE_URL}/api/integrations/${id}`,
+      test: (id: string) => `${API_BASE_URL}/api/integrations/${id}/test`,
+      agents: (id: string) => `${API_BASE_URL}/api/integrations/${id}/agents`,
+      agent: (id: string, agentId: string) => `${API_BASE_URL}/api/integrations/${id}/agents/${agentId}`,
+      analyzeAgent: (id: string, agentId: string) => `${API_BASE_URL}/api/integrations/${id}/agents/${agentId}/analyze`,
     },
     
     // Agents
@@ -51,6 +56,13 @@ export const api = {
       start: (id: string) => `${API_BASE_URL}/api/test-runs/${id}/start`,
       cancel: (id: string) => `${API_BASE_URL}/api/test-runs/${id}/cancel`,
       delete: (id: string) => `${API_BASE_URL}/api/test-runs/${id}`,
+    },
+    
+    // Test Execution
+    testExecution: {
+      analyzeForBatching: `${API_BASE_URL}/api/test-execution/analyze-for-batching`,
+      startBatched: `${API_BASE_URL}/api/test-execution/start-batched`,
+      generateSmartTestCases: `${API_BASE_URL}/api/test-execution/generate-smart-test-cases`,
     },
   },
 };

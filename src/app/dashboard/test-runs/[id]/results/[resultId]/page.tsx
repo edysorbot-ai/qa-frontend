@@ -1,0 +1,735 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { useParams, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Play,
+  Pause,
+  Volume2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Loader2,
+  RefreshCw,
+  AlertTriangle,
+  ThumbsUp,
+  MessageSquare,
+  Mic,
+  Bot,
+  User,
+} from "lucide-react";
+import { api } from "@/lib/api";
+import Link from "next/link";
+
+interface ConversationTurn {
+  role: "user" | "agent";
+  content: string;
+  timestamp: string;
+  durationMs?: number;
+}
+
+interface EvaluationIssue {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  turn: number;
+  agentSaid: string;
+  problem: string;
+  impact: string;
+  shouldHaveSaid: string;
+}
+
+interface TestResultDetail {
+  id: string;
+  testRunId: string;
+  testRunName: string;
+  testCaseId: string;
+  position: number;
+  totalTests: number;
+  
+  // Test info
+  scenario: string;
+  userInput: string;
+  expectedResponse: string;
+  actualResponse: string;
+  category: string;
+  status: "passed" | "failed" | "pending";
+  
+  // Timing
+  durationMs: number;
+  durationFormatted: string;
+  latencyMs: number;
+  startedAt: string;
+  completedAt: string;
+  
+  // Audio/Recording
+  hasRecording: boolean;
+  userAudioUrl: string | null;
+  agentAudioUrl: string | null;
+  callId: string | null;
+  
+  // Transcripts
+  userTranscript: string | null;
+  agentTranscript: string | null;
+  conversationTurns: ConversationTurn[];
+  
+  // Evaluation
+  overallScore: number;
+  coreMetrics: {
+    accuracy: number;
+    relevance: number;
+    coherence: number;
+    completeness: number;
+  };
+  advancedMetrics: {
+    noHallucination: number;
+    responseSpeed: number;
+    infoAccuracy: number;
+    protocol: number;
+    resolution: number;
+    voiceQuality: number;
+    tone: number;
+    empathy: number;
+  };
+  analysis: {
+    summary: string;
+    strengths: string[];
+    issues: Array<string | EvaluationIssue>;
+  };
+  
+  // Intent
+  detectedIntent: string | null;
+  intentMatch: boolean;
+  outputMatch: boolean;
+  
+  // Error
+  errorMessage: string | null;
+}
+
+const statusColors: Record<string, string> = {
+  passed: "bg-green-100 text-green-800",
+  failed: "bg-red-100 text-red-800",
+  pending: "bg-yellow-100 text-yellow-800",
+};
+
+function CircularProgress({ value, label, size = 100 }: { value: number; label: string; size?: number }) {
+  const radius = (size - 10) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (value / 100) * circumference;
+  const color = value >= 80 ? '#22c55e' : value >= 60 ? '#eab308' : '#ef4444';
+  
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#e5e7eb"
+          strokeWidth="8"
+          fill="none"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth="8"
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-500"
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center justify-center" style={{ width: size, height: size }}>
+        <span className="text-2xl font-bold">{value}%</span>
+      </div>
+      <span className="text-sm text-muted-foreground mt-2">{label}</span>
+    </div>
+  );
+}
+
+function MetricBar({ label, value }: { label: string; value: number }) {
+  const color = value >= 80 ? 'bg-green-500' : value >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+  
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{value}%</span>
+      </div>
+      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  );
+}
+
+export default function TestResultDetailPage() {
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const params = useParams();
+  const testRunId = params.id as string;
+  const resultId = params.resultId as string;
+
+  const [result, setResult] = useState<TestResultDetail | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Audio player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const fetchResult = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(
+        `${api.baseUrl}/api/test-execution/result/${resultId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setResult(data.result);
+        } else {
+          setError(data.error || "Failed to fetch result");
+        }
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to fetch result");
+      }
+    } catch (error) {
+      console.error("Error fetching result:", error);
+      setError("Failed to fetch result");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getToken, resultId]);
+
+  useEffect(() => {
+    fetchResult();
+  }, [fetchResult]);
+
+  // Audio controls
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error || !result) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link href={`/dashboard/test-runs/${testRunId}`}>
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <h1 className="text-3xl font-bold tracking-tight">Test Result</h1>
+        </div>
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg">
+          {error || "Result not found"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link href={`/dashboard/test-runs/${testRunId}`}>
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight">
+                Test {result.position} of {result.totalTests}
+              </h1>
+              <Badge className={statusColors[result.status]}>
+                {result.status.toUpperCase()}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground">
+              {result.testRunName} • {result.category}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchResult}
+          >
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+          
+          {/* Navigation between results */}
+          {result.position > 1 && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                // Navigate to previous result (would need to fetch previous result ID)
+              }}
+              disabled
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          {result.position < result.totalTests && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                // Navigate to next result (would need to fetch next result ID)
+              }}
+              disabled
+            >
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Main Content */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Scenario Info */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Test Scenario</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Scenario</label>
+                <p className="mt-1">{result.scenario}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">User Input</label>
+                  <p className="mt-1 text-sm bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">{result.userInput}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Expected Response</label>
+                  <p className="mt-1 text-sm bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">{result.expectedResponse}</p>
+                </div>
+              </div>
+              {result.actualResponse && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Actual Response</label>
+                  <p className="mt-1 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                    {result.actualResponse}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Call Recording */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Volume2 className="h-5 w-5" />
+              Call Recording
+            </h2>
+            
+            {result.hasRecording && result.agentAudioUrl ? (
+              <div className="space-y-4">
+                <audio
+                  ref={audioRef}
+                  src={result.agentAudioUrl}
+                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                  onEnded={() => setIsPlaying(false)}
+                />
+                
+                <div className="flex items-center gap-4">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={togglePlay}
+                    className="h-12 w-12 rounded-full"
+                  >
+                    {isPlaying ? (
+                      <Pause className="h-5 w-5" />
+                    ) : (
+                      <Play className="h-5 w-5 ml-0.5" />
+                    )}
+                  </Button>
+                  
+                  <div className="flex-1 space-y-1">
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${(currentTime / duration) * 100 || 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{formatTime(currentTime)}</span>
+                      <span>{formatTime(duration)}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {result.callId && (
+                  <p className="text-xs text-muted-foreground">
+                    Call ID: {result.callId}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Mic className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                <p>No recording available for this test</p>
+              </div>
+            )}
+          </div>
+
+          {/* Conversation Transcript */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                Conversation Transcript
+              </h2>
+              {result.conversationTurns && result.conversationTurns.length > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  {result.conversationTurns.length} messages
+                </span>
+              )}
+            </div>
+            
+            {result.conversationTurns && result.conversationTurns.length > 0 ? (
+              <div className="space-y-4">
+                {result.conversationTurns.map((turn, index) => (
+                  <div
+                    key={index}
+                    className={`flex gap-3 ${turn.role === 'user' ? 'justify-start' : 'justify-start'}`}
+                  >
+                    {/* Avatar */}
+                    <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      turn.role === 'user' 
+                        ? 'bg-slate-700 text-white' 
+                        : 'bg-purple-600 text-white'
+                    }`}>
+                      {turn.role === 'user' ? (
+                        <User className="h-5 w-5" />
+                      ) : (
+                        <Bot className="h-5 w-5" />
+                      )}
+                    </div>
+                    
+                    {/* Message Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-sm font-semibold ${
+                          turn.role === 'user' ? 'text-slate-700 dark:text-slate-300' : 'text-purple-600 dark:text-purple-400'
+                        }`}>
+                          {turn.role === 'user' ? 'TEST CALLER' : 'AI AGENT'}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {typeof turn.timestamp === 'number' 
+                            ? new Date(turn.timestamp).toLocaleTimeString()
+                            : turn.timestamp}
+                        </span>
+                      </div>
+                      <div className={`rounded-lg p-4 ${
+                        turn.role === 'user'
+                          ? 'bg-slate-100 dark:bg-slate-800'
+                          : 'bg-purple-50 dark:bg-purple-900/30'
+                      }`}>
+                        <p className="text-sm leading-relaxed">{turn.content}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Show user and agent transcripts if no conversation turns */}
+                {result.userTranscript && (
+                  <div className="flex gap-3">
+                    <div className="h-10 w-10 rounded-full bg-slate-700 text-white flex items-center justify-center flex-shrink-0">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">TEST CALLER</span>
+                      </div>
+                      <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
+                        <p className="text-sm leading-relaxed">{result.userTranscript}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {result.agentTranscript && (
+                  <div className="flex gap-3">
+                    <div className="h-10 w-10 rounded-full bg-purple-600 text-white flex items-center justify-center flex-shrink-0">
+                      <Bot className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-purple-600 dark:text-purple-400">AI AGENT</span>
+                      </div>
+                      <div className="bg-purple-50 dark:bg-purple-900/30 rounded-lg p-4">
+                        <p className="text-sm leading-relaxed">{result.agentTranscript}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {!result.userTranscript && !result.agentTranscript && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                    <p>No transcript available</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column - Metrics */}
+        <div className="space-y-6">
+          {/* Overall Score */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Overall Score</h2>
+            <div className="flex justify-center relative">
+              <CircularProgress value={result.overallScore} label="Overall" size={140} />
+            </div>
+            <div className="mt-4 text-center">
+              <p className={`text-sm font-medium ${
+                result.overallScore >= 80 ? 'text-green-600' :
+                result.overallScore >= 60 ? 'text-yellow-600' : 'text-red-600'
+              }`}>
+                {result.overallScore >= 80 ? 'Excellent' :
+                 result.overallScore >= 60 ? 'Good' :
+                 result.overallScore >= 40 ? 'Needs Improvement' : 'Poor'}
+              </p>
+            </div>
+          </div>
+
+          {/* Core Metrics */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Core Metrics</h2>
+            <div className="space-y-4">
+              <MetricBar label="Accuracy" value={result.coreMetrics.accuracy} />
+              <MetricBar label="Relevance" value={result.coreMetrics.relevance} />
+              <MetricBar label="Coherence" value={result.coreMetrics.coherence} />
+              <MetricBar label="Completeness" value={result.coreMetrics.completeness} />
+            </div>
+          </div>
+
+          {/* Advanced Metrics */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Advanced Metrics</h2>
+            <div className="space-y-3">
+              <MetricBar label="No Hallucination" value={result.advancedMetrics.noHallucination} />
+              <MetricBar label="Response Speed" value={result.advancedMetrics.responseSpeed} />
+              <MetricBar label="Info Accuracy" value={result.advancedMetrics.infoAccuracy} />
+              <MetricBar label="Protocol" value={result.advancedMetrics.protocol} />
+              <MetricBar label="Resolution" value={result.advancedMetrics.resolution} />
+              <MetricBar label="Voice Quality" value={result.advancedMetrics.voiceQuality} />
+              <MetricBar label="Tone" value={result.advancedMetrics.tone} />
+              <MetricBar label="Empathy" value={result.advancedMetrics.empathy} />
+            </div>
+          </div>
+
+          {/* AI Evaluation Summary */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">AI Evaluation Summary</h2>
+            
+            {result.analysis.summary && (
+              <p className="text-sm text-muted-foreground mb-4">
+                {result.analysis.summary}
+              </p>
+            )}
+            
+            {result.analysis.strengths && result.analysis.strengths.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-green-600 flex items-center gap-2 mb-2">
+                  <ThumbsUp className="h-4 w-4" />
+                  Strengths
+                </h3>
+                <ul className="space-y-1">
+                  {result.analysis.strengths.map((strength, i) => (
+                    <li key={i} className="text-sm flex items-start gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                      <span>{strength}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {result.analysis.issues && result.analysis.issues.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-red-600 flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Issues ({result.analysis.issues.length})
+                </h3>
+                <div className="space-y-3">
+                  {result.analysis.issues.map((issue, i) => {
+                    // Handle both string and object formats
+                    if (typeof issue === 'string') {
+                      return (
+                        <div key={i} className="flex items-start gap-2 text-sm">
+                          <XCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                          <span>{issue}</span>
+                        </div>
+                      );
+                    }
+                    
+                    // Object format with detailed issue info
+                    const issueObj = issue as EvaluationIssue;
+                    return (
+                      <div key={i} className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge variant={
+                            issueObj.severity === 'critical' ? 'destructive' : 
+                            issueObj.severity === 'warning' ? 'secondary' : 'outline'
+                          } className="text-xs">
+                            {issueObj.severity?.toUpperCase() || 'ISSUE'}
+                          </Badge>
+                          {issueObj.category && (
+                            <span className="text-xs text-muted-foreground">{issueObj.category}</span>
+                          )}
+                          {issueObj.turn !== undefined && (
+                            <span className="text-xs text-muted-foreground">Turn #{issueObj.turn}</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">
+                          {issueObj.problem}
+                        </p>
+                        {issueObj.agentSaid && (
+                          <div className="text-xs text-muted-foreground mt-2">
+                            <span className="font-medium">Agent said:</span> &quot;{issueObj.agentSaid}&quot;
+                          </div>
+                        )}
+                        {issueObj.shouldHaveSaid && (
+                          <div className="text-xs text-green-600 dark:text-green-400 mt-1">
+                            <span className="font-medium">Should have said:</span> &quot;{issueObj.shouldHaveSaid}&quot;
+                          </div>
+                        )}
+                        {issueObj.impact && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            <span className="font-medium">Impact:</span> {issueObj.impact}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {!result.analysis.summary && 
+             (!result.analysis.strengths || result.analysis.strengths.length === 0) && 
+             (!result.analysis.issues || result.analysis.issues.length === 0) && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No AI evaluation available
+              </p>
+            )}
+          </div>
+
+          {/* Test Details */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Test Details</h2>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Duration</span>
+                <span className="font-medium">{result.durationFormatted}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Latency</span>
+                <span className="font-medium">{result.latencyMs}ms</span>
+              </div>
+              {result.detectedIntent && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Detected Intent</span>
+                  <span className="font-medium">{result.detectedIntent}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Intent Match</span>
+                <Badge variant={result.intentMatch ? "default" : "destructive"}>
+                  {result.intentMatch ? "Yes" : "No"}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Output Match</span>
+                <Badge variant={result.outputMatch ? "default" : "destructive"}>
+                  {result.outputMatch ? "Yes" : "No"}
+                </Badge>
+              </div>
+              {result.startedAt && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Started</span>
+                  <span className="font-medium text-xs">
+                    {new Date(result.startedAt).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {result.completedAt && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Completed</span>
+                  <span className="font-medium text-xs">
+                    {new Date(result.completedAt).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {result.errorMessage && (
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 p-6">
+              <h2 className="text-lg font-semibold text-red-600 mb-2 flex items-center gap-2">
+                <XCircle className="h-5 w-5" />
+                Error
+              </h2>
+              <p className="text-sm text-red-600">{result.errorMessage}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -28,13 +28,10 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Bot,
-  FlaskConical,
   PlayCircle,
-  BarChart3,
   Settings,
   LogOut,
   ChevronUp,
-  Plug,
 } from "lucide-react";
 
 const menuItems = [
@@ -44,29 +41,9 @@ const menuItems = [
     href: "/dashboard",
   },
   {
-    title: "Agents",
-    icon: Bot,
-    href: "/dashboard/agents",
-  },
-  {
-    title: "Test Cases",
-    icon: FlaskConical,
-    href: "/dashboard/test-cases",
-  },
-  {
     title: "Test Runs",
     icon: PlayCircle,
     href: "/dashboard/test-runs",
-  },
-  {
-    title: "Analytics",
-    icon: BarChart3,
-    href: "/dashboard/analytics",
-  },
-  {
-    title: "Integrations",
-    icon: Plug,
-    href: "/dashboard/integrations",
   },
   {
     title: "Settings",
