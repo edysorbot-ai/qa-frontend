@@ -35,6 +35,8 @@ export const api = {
       get: (id: string) => `${API_BASE_URL}/api/agents/${id}`,
       update: (id: string) => `${API_BASE_URL}/api/agents/${id}`,
       delete: (id: string) => `${API_BASE_URL}/api/agents/${id}`,
+      generateTestCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/generate-test-cases`,
+      testCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/test-cases`,
     },
     
     // Test Cases
@@ -53,9 +55,11 @@ export const api = {
       create: `${API_BASE_URL}/api/test-runs`,
       stats: `${API_BASE_URL}/api/test-runs/stats`,
       get: (id: string) => `${API_BASE_URL}/api/test-runs/${id}`,
+      byAgent: (agentId: string) => `${API_BASE_URL}/api/test-runs?agent_id=${agentId}`,
       start: (id: string) => `${API_BASE_URL}/api/test-runs/${id}/start`,
       cancel: (id: string) => `${API_BASE_URL}/api/test-runs/${id}/cancel`,
       delete: (id: string) => `${API_BASE_URL}/api/test-runs/${id}`,
+      compare: (ids: string[]) => `${API_BASE_URL}/api/test-runs/compare?ids=${ids.join(',')}`,
     },
     
     // Test Execution

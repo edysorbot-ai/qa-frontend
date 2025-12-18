@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -17,41 +17,28 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, Sparkles, Loader2, Plus, Trash2, PlayCircle, Layers, GripVertical, X, ArrowRight, Phone } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
-
-type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime";
-
-interface Integration {
-  id: string;
-  provider: Provider;
-  api_key: string;
-  is_active: boolean;
-}
 
 interface Agent {
   id: string;
   name: string;
   provider: string;
-  description?: string;
-  voice?: string;
-  language?: string;
-}
-
-interface AgentAnalysis {
-  purpose: string;
-  capabilities: string[];
-  expectedBehaviors: string[];
-  configs: Record<string, any>;
+  prompt?: string;
+  config?: Record<string, any>;
+  integration_id?: string;
+  external_agent_id?: string;
 }
 
 interface TestCase {
@@ -69,13 +56,6 @@ interface CallBatch {
   testCases: TestCase[];
   estimatedDuration: string;
 }
-
-const providerNames: Record<Provider, string> = {
-  elevenlabs: "ElevenLabs",
-  retell: "Retell",
-  vapi: "VAPI",
-  openai_realtime: "OpenAI Realtime",
-};
 
 const priorityColors: Record<string, string> = {
   high: "bg-red-100 text-red-800",
@@ -101,51 +81,58 @@ export default function NewTestRunPage() {
   const router = useRouter();
 
   // Selection state
-  const [connectedIntegrations, setConnectedIntegrations] = useState<Integration[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string>("");
-  const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [agentSearch, setAgentSearch] = useState("");
 
-  // Analysis state
-  const [agentAnalysis, setAgentAnalysis] = useState<AgentAnalysis | null>(null);
+  // Test cases state
   const [testCases, setTestCases] = useState<TestCase[]>([]);
-  const [hasGenerated, setHasGenerated] = useState(false);
-  const [testCaseCount, setTestCaseCount] = useState(20);
+  const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<Set<string>>(new Set());
 
   // Loading states
-  const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
-  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoadingAgents, setIsLoadingAgents] = useState(true);
+  const [isLoadingAgentDetails, setIsLoadingAgentDetails] = useState(false);
   const [isStartingTests, setIsStartingTests] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Batch planning modal state
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [callBatches, setCallBatches] = useState<CallBatch[]>([]);
-  const [enableBatching, setEnableBatching] = useState(true);
-
-  // Test run configuration
-  const [enableConcurrency, setEnableConcurrency] = useState(false);
-  const [concurrentCalls, setConcurrentCalls] = useState(5);
+  const [draggedTestCase, setDraggedTestCase] = useState<{ testCase: TestCase; fromBatchId: string } | null>(null);
+  const [dragOverBatchId, setDragOverBatchId] = useState<string | null>(null);
 
   // New test case form
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingTestCase, setEditingTestCase] = useState<string | null>(null);
+  const [customCategory, setCustomCategory] = useState("");
   const [newTestCase, setNewTestCase] = useState({
     name: "",
     scenario: "",
-    category: "Custom",
+    category: "",
     expectedOutcome: "",
     priority: "medium" as "high" | "medium" | "low",
   });
 
-  // Fetch connected integrations on mount
+  // Get unique categories from existing test cases
+  const existingCategories = [...new Set(testCases.map(tc => tc.category))].filter(Boolean);
+
+  // Filter agents based on search
+  const filteredAgents = agents.filter(agent => 
+    agent.name.toLowerCase().includes(agentSearch.toLowerCase())
+  );
+
+  // Get selected test cases
+  const selectedTestCases = testCases.filter(tc => selectedTestCaseIds.has(tc.id));
+
+  // Fetch agents on mount
   useEffect(() => {
-    const loadIntegrations = async () => {
+    const loadAgents = async () => {
       try {
         const token = await getToken();
         if (!token) return;
 
-        const response = await fetch(api.endpoints.integrations.list, {
+        const response = await fetch(api.endpoints.agents.list, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -153,68 +140,7 @@ export default function NewTestRunPage() {
 
         if (response.ok) {
           const data = await response.json();
-          const connected = (data.integrations || []).filter(
-            (i: Integration) => i.is_active
-          );
-          setConnectedIntegrations(connected);
-        }
-      } catch (error) {
-        console.error("Error fetching integrations:", error);
-        setError("Failed to load integrations");
-      } finally {
-        setIsLoadingIntegrations(false);
-      }
-    };
-
-    loadIntegrations();
-  }, [getToken]);
-
-  // Fetch agents when provider changes
-  useEffect(() => {
-    if (!selectedProvider) {
-      setAgents([]);
-      setSelectedAgent("");
-      return;
-    }
-
-    const loadAgents = async () => {
-      setIsLoadingAgents(true);
-      setSelectedAgent("");
-      setAgents([]);
-      setError(null);
-      // Reset generated data when provider changes
-      setAgentAnalysis(null);
-      setTestCases([]);
-      setHasGenerated(false);
-
-      try {
-        const token = await getToken();
-        if (!token) return;
-
-        const integration = connectedIntegrations.find(
-          (i) => i.provider === selectedProvider
-        );
-
-        if (!integration) {
-          setError("Integration not found");
-          return;
-        }
-
-        const response = await fetch(
-          api.endpoints.integrations.agents(integration.id),
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
           setAgents(data.agents || []);
-        } else {
-          const errorData = await response.json();
-          setError(errorData.message || "Failed to load agents");
         }
       } catch (error) {
         console.error("Error fetching agents:", error);
@@ -225,105 +151,192 @@ export default function NewTestRunPage() {
     };
 
     loadAgents();
-  }, [selectedProvider, connectedIntegrations, getToken]);
+  }, [getToken]);
 
-  // Reset generated data when agent changes
-  useEffect(() => {
-    setAgentAnalysis(null);
-    setTestCases([]);
-    setHasGenerated(false);
-  }, [selectedAgent]);
+  // Fetch agent details and test cases when agent is selected
+  const fetchAgentDetails = useCallback(async (agentId: string) => {
+    if (!agentId) return;
 
-  const handleGenerateTestCases = async () => {
-    if (!selectedProvider || !selectedAgent) return;
-
-    setIsGenerating(true);
+    setIsLoadingAgentDetails(true);
     setError(null);
 
     try {
       const token = await getToken();
       if (!token) return;
 
-      const integration = connectedIntegrations.find(
-        (i) => i.provider === selectedProvider
-      );
+      // Fetch agent details
+      const agentResponse = await fetch(api.endpoints.agents.get(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      if (!integration) {
-        setError("Integration not found");
-        return;
+      if (agentResponse.ok) {
+        const data = await agentResponse.json();
+        setSelectedAgent(data.agent);
       }
 
-      const response = await fetch(
-        api.endpoints.integrations.analyzeAgent(integration.id, selectedAgent),
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ maxTestCases: testCaseCount }),
-        }
-      );
+      // Fetch test cases for this agent
+      const testCasesResponse = await fetch(api.endpoints.agents.testCases(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      if (response.ok) {
-        const data = await response.json();
-        setAgentAnalysis(data.agentAnalysis);
-        setTestCases(data.testCases || []);
-        setHasGenerated(true);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.message || "Failed to generate test cases");
+      if (testCasesResponse.ok) {
+        const data = await testCasesResponse.json();
+        const cases = (data.testCases || []).map((tc: any) => ({
+          id: tc.id,
+          name: tc.name,
+          scenario: tc.scenario,
+          category: tc.category || 'General',
+          expectedOutcome: tc.expected_behavior || '',
+          priority: tc.priority || 'medium',
+        }));
+        setTestCases(cases);
+        // Select all test cases by default
+        setSelectedTestCaseIds(new Set(cases.map((tc: TestCase) => tc.id)));
       }
     } catch (error) {
-      console.error("Error generating test cases:", error);
-      setError("Failed to generate test cases");
+      console.error("Error fetching agent details:", error);
+      setError("Failed to load agent details");
     } finally {
-      setIsGenerating(false);
+      setIsLoadingAgentDetails(false);
     }
+  }, [getToken]);
+
+  // Fetch agent details when selection changes
+  useEffect(() => {
+    if (selectedAgentId) {
+      fetchAgentDetails(selectedAgentId);
+    } else {
+      setSelectedAgent(null);
+      setTestCases([]);
+      setSelectedTestCaseIds(new Set());
+    }
+  }, [selectedAgentId, fetchAgentDetails]);
+
+  // Toggle test case selection
+  const toggleTestCase = (id: string) => {
+    setSelectedTestCaseIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all test cases
+  const selectAllTestCases = () => {
+    setSelectedTestCaseIds(new Set(testCases.map(tc => tc.id)));
+  };
+
+  // Deselect all test cases
+  const deselectAllTestCases = () => {
+    setSelectedTestCaseIds(new Set());
   };
 
   const handleAddTestCase = () => {
     if (!newTestCase.name || !newTestCase.scenario) return;
 
+    const finalCategory = newTestCase.category === "__custom__" 
+      ? customCategory 
+      : newTestCase.category || "Custom";
+
     const newCase: TestCase = {
       id: `tc-manual-${Date.now()}`,
       name: newTestCase.name,
       scenario: newTestCase.scenario,
-      category: newTestCase.category || "Custom",
+      category: finalCategory,
       expectedOutcome: newTestCase.expectedOutcome,
       priority: newTestCase.priority,
     };
 
     setTestCases([...testCases, newCase]);
+    setSelectedTestCaseIds(prev => new Set([...prev, newCase.id]));
     setNewTestCase({
       name: "",
       scenario: "",
-      category: "Custom",
+      category: "",
       expectedOutcome: "",
       priority: "medium",
     });
+    setCustomCategory("");
     setShowAddForm(false);
+  };
+
+  const handleEditTestCase = (tc: TestCase) => {
+    setEditingTestCase(tc.id);
+    setNewTestCase({
+      name: tc.name,
+      scenario: tc.scenario,
+      category: existingCategories.includes(tc.category) ? tc.category : "__custom__",
+      expectedOutcome: tc.expectedOutcome,
+      priority: tc.priority,
+    });
+    if (!existingCategories.includes(tc.category)) {
+      setCustomCategory(tc.category);
+    }
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingTestCase || !newTestCase.name || !newTestCase.scenario) return;
+
+    const finalCategory = newTestCase.category === "__custom__" 
+      ? customCategory 
+      : newTestCase.category || "Custom";
+
+    setTestCases(testCases.map(tc => 
+      tc.id === editingTestCase 
+        ? { 
+            ...tc, 
+            name: newTestCase.name,
+            scenario: newTestCase.scenario,
+            category: finalCategory,
+            expectedOutcome: newTestCase.expectedOutcome,
+            priority: newTestCase.priority,
+          }
+        : tc
+    ));
+    
+    setEditingTestCase(null);
+    setNewTestCase({
+      name: "",
+      scenario: "",
+      category: "",
+      expectedOutcome: "",
+      priority: "medium",
+    });
+    setCustomCategory("");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTestCase(null);
+    setNewTestCase({
+      name: "",
+      scenario: "",
+      category: "",
+      expectedOutcome: "",
+      priority: "medium",
+    });
+    setCustomCategory("");
   };
 
   const handleDeleteTestCase = (id: string) => {
     setTestCases(testCases.filter((tc) => tc.id !== id));
+    setSelectedTestCaseIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(id);
+      return newSet;
+    });
   };
 
-  // Create batches from test cases - ONE call per category (all test cases in that category)
+  // Create batches from selected test cases - group by category
   const createBatches = (): CallBatch[] => {
-    if (!enableBatching) {
-      // One test case per batch (call)
-      return testCases.map((tc, idx) => ({
-        id: `batch-${idx + 1}`,
-        name: tc.category,
-        testCases: [tc],
-        estimatedDuration: "30-45 seconds",
-      }));
-    }
-
-    // Group ALL test cases by category - each category = ONE call
+    const casesToBatch = selectedTestCases;
+    
+    // Group test cases by category - each category = ONE call
     const categoryGroups = new Map<string, TestCase[]>();
-    testCases.forEach((tc) => {
+    casesToBatch.forEach((tc) => {
       const category = tc.category || "General";
       const group = categoryGroups.get(category) || [];
       group.push(tc);
@@ -331,11 +344,9 @@ export default function NewTestRunPage() {
     });
 
     const batches: CallBatch[] = [];
-
-    // Each category becomes ONE call with ALL its test cases
     categoryGroups.forEach((cases, category) => {
-      const totalTurns = cases.length * 3; // Estimate 3 turns per test case
-      const estimatedMinutes = Math.ceil(totalTurns * 10 / 60); // ~10 seconds per turn
+      const totalTurns = cases.length * 3;
+      const estimatedMinutes = Math.ceil(totalTurns * 10 / 60);
       batches.push({
         id: `batch-${batches.length + 1}`,
         name: category,
@@ -347,14 +358,12 @@ export default function NewTestRunPage() {
     return batches;
   };
 
-  // Show batch planning modal
   const handlePlanBatches = () => {
     const batches = createBatches();
     setCallBatches(batches);
     setShowBatchModal(true);
   };
 
-  // Move test case between batches
   const moveTestCase = (testCaseId: string, fromBatchId: string, toBatchId: string) => {
     setCallBatches(prevBatches => {
       const newBatches = [...prevBatches];
@@ -369,12 +378,10 @@ export default function NewTestRunPage() {
       const [testCase] = fromBatch.testCases.splice(tcIndex, 1);
       toBatch.testCases.push(testCase);
       
-      // Remove empty batches
       return newBatches.filter(b => b.testCases.length > 0);
     });
   };
 
-  // Remove test case from batch
   const removeFromBatch = (testCaseId: string, batchId: string) => {
     setCallBatches(prevBatches => {
       return prevBatches.map(batch => {
@@ -389,9 +396,8 @@ export default function NewTestRunPage() {
     });
   };
 
-  // Execute the batched test run
   const handleStartBatchedTests = async () => {
-    if (callBatches.length === 0) return;
+    if (callBatches.length === 0 || !selectedAgent) return;
 
     setIsStartingTests(true);
     setError(null);
@@ -400,18 +406,6 @@ export default function NewTestRunPage() {
       const token = await getToken();
       if (!token) return;
 
-      const integration = connectedIntegrations.find(
-        (i) => i.provider === selectedProvider
-      );
-
-      if (!integration) {
-        setError("Integration not found");
-        return;
-      }
-
-      const selectedAgentObj = agents.find((a) => a.id === selectedAgent);
-
-      // Format batches for the API
       const formattedBatches = callBatches.map(batch => ({
         id: batch.id,
         name: batch.name,
@@ -431,13 +425,14 @@ export default function NewTestRunPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          name: `Batched Run - ${selectedAgentObj?.name || selectedAgent}`,
-          provider: selectedProvider,
-          agentId: selectedAgent,
-          apiKey: integration.api_key,
-          agentName: selectedAgentObj?.name || selectedAgent,
+          name: `Test Run - ${selectedAgent.name}`,
+          provider: selectedAgent.provider,
+          agentId: selectedAgent.external_agent_id || selectedAgent.id,
+          internalAgentId: selectedAgent.id, // Our database agent ID for querying later
+          integrationId: selectedAgent.integration_id,
+          agentName: selectedAgent.name,
           batches: formattedBatches,
-          enableBatching: enableBatching,
+          enableBatching: true,
         }),
       });
 
@@ -458,70 +453,24 @@ export default function NewTestRunPage() {
     }
   };
 
-  // Legacy single test case per call execution
-  const handleStartTests = async () => {
-    if (testCases.length === 0) return;
-
-    setIsStartingTests(true);
-    setError(null);
-
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const integration = connectedIntegrations.find(
-        (i) => i.provider === selectedProvider
-      );
-
-      if (!integration) {
-        setError("Integration not found");
-        return;
+  // Extract config values for display
+  const getConfigValues = (config: Record<string, any>) => {
+    const values: Record<string, any> = {};
+    
+    // Common config keys to display
+    const keys = [
+      'llmModel', 'modelName', 'model', 'llmProvider', 'modelProvider',
+      'temperature', 'maxTokens', 'voice', 'voiceId', 'voiceModel',
+      'language', 'firstMessage', 'beginMessage',
+    ];
+    
+    keys.forEach(key => {
+      if (config[key] !== undefined && config[key] !== null && config[key] !== '') {
+        values[key] = config[key];
       }
-
-      const selectedAgentObj = agents.find((a) => a.id === selectedAgent);
-
-      // Transform test cases for the API
-      const formattedTestCases = testCases.map((tc) => ({
-        id: tc.id,
-        scenario: tc.scenario,
-        userInput: tc.name, // Use name as the user input
-        expectedResponse: tc.expectedOutcome,
-        category: tc.category,
-      }));
-
-      const response = await fetch(`${api.baseUrl}/api/test-execution/start`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: `Test Run - ${selectedAgentObj?.name || selectedAgent}`,
-          provider: selectedProvider,
-          agentId: selectedAgent,
-          apiKey: integration.api_key,
-          agentName: selectedAgentObj?.name || selectedAgent,
-          testCases: formattedTestCases,
-          concurrency: enableConcurrency ? concurrentCalls : 1,
-          ttsVoice: "rachel",
-          ttsModel: "eleven_turbo_v2",
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Navigate to the test run details page
-        router.push(`/dashboard/test-runs/${data.testRunId}`);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || "Failed to start test run");
-      }
-    } catch (error) {
-      console.error("Error starting tests:", error);
-      setError("Failed to start tests");
-    } finally {
-      setIsStartingTests(false);
-    }
+    });
+    
+    return values;
   };
 
   return (
@@ -536,7 +485,7 @@ export default function NewTestRunPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create Test Run</h1>
           <p className="text-muted-foreground">
-            Select a provider and agent to generate test cases
+            Select an agent and configure your test run
           </p>
         </div>
       </div>
@@ -546,473 +495,567 @@ export default function NewTestRunPage() {
         <div className="bg-red-50 text-red-600 p-4 rounded-lg">{error}</div>
       )}
 
-      {/* Selection row - 4 columns */}
-      <div className="grid grid-cols-4 gap-4">
-        {/* Provider Dropdown */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Provider</label>
-          <Select
-            value={selectedProvider}
-            onValueChange={setSelectedProvider}
-            disabled={isLoadingIntegrations || hasGenerated}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue
-                placeholder={
-                  isLoadingIntegrations
-                    ? "Loading..."
-                    : connectedIntegrations.length === 0
-                    ? "No providers connected"
-                    : "Select provider"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {connectedIntegrations.map((integration) => (
-                <SelectItem key={integration.id} value={integration.provider}>
-                  {providerNames[integration.provider]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {connectedIntegrations.length === 0 && !isLoadingIntegrations && (
-            <p className="text-xs text-muted-foreground">
-              Connect a provider in{" "}
-              <Link href="/dashboard/settings" className="text-primary underline">
-                Settings
-              </Link>
-            </p>
-          )}
+      {/* Agent Selection */}
+      <div className="border rounded-lg p-6 bg-card">
+        <div className="flex items-center gap-2 mb-4">
+          <Bot className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Select Agent</h2>
         </div>
-
-        {/* Agent Dropdown */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Agent</label>
+        
+        <div className="max-w-md">
           <Select
-            value={selectedAgent}
-            onValueChange={setSelectedAgent}
-            disabled={!selectedProvider || isLoadingAgents || hasGenerated}
+            value={selectedAgentId}
+            onValueChange={(value) => {
+              setSelectedAgentId(value);
+              setAgentSearch("");
+            }}
+            disabled={isLoadingAgents}
           >
             <SelectTrigger className="w-full">
               <SelectValue
                 placeholder={
-                  !selectedProvider
-                    ? "Select provider first"
-                    : isLoadingAgents
+                  isLoadingAgents
                     ? "Loading agents..."
                     : agents.length === 0
-                    ? "No agents found"
-                    : "Select agent"
+                    ? "No agents added"
+                    : "Select an agent"
                 }
               />
             </SelectTrigger>
             <SelectContent>
-              {agents.map((agent) => (
-                <SelectItem key={agent.id} value={agent.id}>
-                  {agent.name}
-                </SelectItem>
-              ))}
+              <div className="flex items-center px-2 pb-2 sticky top-0 bg-popover">
+                <Search className="h-4 w-4 text-muted-foreground absolute left-4" />
+                <Input
+                  placeholder="Search agents..."
+                  value={agentSearch}
+                  onChange={(e) => setAgentSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+              </div>
+              {filteredAgents.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  {agents.length === 0 ? (
+                    <div className="space-y-2">
+                      <p>No agents added yet</p>
+                      <Link href="/dashboard/agents" className="text-primary underline">
+                        Add an agent first
+                      </Link>
+                    </div>
+                  ) : (
+                    "No agents found"
+                  )}
+                </div>
+              ) : (
+                filteredAgents.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    <div className="flex items-center gap-2">
+                      <span>{agent.name}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {agent.provider}
+                      </Badge>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
-        </div>
-
-        {/* Test Case Count Slider */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Test Cases: {testCaseCount}</label>
-          <div className="pt-2">
-            <Slider
-              value={[testCaseCount]}
-              onValueChange={(value) => setTestCaseCount(value[0])}
-              min={1}
-              max={30}
-              step={1}
-              disabled={hasGenerated}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>1</span>
-              <span>30</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Generate Test Cases Button */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">&nbsp;</label>
-          <Button
-            className="w-full"
-            onClick={handleGenerateTestCases}
-            disabled={!selectedProvider || !selectedAgent || isGenerating || hasGenerated}
-          >
-            {isGenerating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
-            {isGenerating ? "Analyzing..." : "Generate Test Cases"}
-          </Button>
         </div>
       </div>
 
-      {/* Agent Analysis Section */}
-      {agentAnalysis && (
-        <div className="border rounded-lg p-6 bg-muted/30">
-          <h2 className="text-xl font-semibold mb-4">Agent Analysis</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left Column: Purpose, Capabilities, Expected Behaviors */}
-            <div className="space-y-6">
-              {/* Purpose */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm text-muted-foreground">
-                  Agent Purpose
-                </h3>
-                <p className="text-sm">{agentAnalysis.purpose}</p>
-              </div>
-
-              {/* Capabilities */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm text-muted-foreground">
-                  Capabilities
-                </h3>
-                <ul className="text-sm list-disc list-inside space-y-1">
-                  {agentAnalysis.capabilities.map((cap, i) => (
-                    <li key={i}>{cap}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Expected Behaviors */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm text-muted-foreground">
-                  Expected Behaviors
-                </h3>
-                <ul className="text-sm list-disc list-inside space-y-1">
-                  {agentAnalysis.expectedBehaviors.map((behavior, i) => (
-                    <li key={i}>{behavior}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {/* Right Column: Configurations Table */}
-            <div className="space-y-2">
-              <h3 className="font-medium text-sm text-muted-foreground">
-                Agent Configuration
-              </h3>
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium">Property</th>
-                      <th className="px-3 py-2 text-left font-medium">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {Object.entries(agentAnalysis.configs)
-                      .filter(([, value]) => value !== undefined && value !== null && value !== '')
-                      .map(([key, value]) => (
-                        <tr key={key} className="hover:bg-muted/50">
-                          <td className="px-3 py-2 text-muted-foreground capitalize">
-                            {key.replace(/([A-Z])/g, ' $1').trim()}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {typeof value === 'boolean' 
-                              ? (value ? '✓ Enabled' : '✗ Disabled')
-                              : typeof value === 'object'
-                                ? Array.isArray(value) 
-                                  ? value.join(', ')
-                                  : JSON.stringify(value)
-                                : String(value)}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+      {/* Loading Agent Details */}
+      {isLoadingAgentDetails && (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       )}
 
-      {/* Test Cases Section */}
-      {hasGenerated && (
+      {/* Agent Details Section */}
+      {selectedAgent && !isLoadingAgentDetails && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">
-              Test Cases ({testCases.length})
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAddForm(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Test Case
-            </Button>
+          {/* Agent Info Accordion */}
+          <Accordion type="multiple" defaultValue={["prompt", "config"]} className="border rounded-lg">
+            {/* Prompt Section */}
+            <AccordionItem value="prompt" className="border-b">
+              <AccordionTrigger className="px-6 hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Agent Prompt</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                {selectedAgent.prompt ? (
+                  <pre className="text-sm whitespace-pre-wrap bg-muted p-4 rounded-lg max-h-64 overflow-auto">
+                    {selectedAgent.prompt}
+                  </pre>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No prompt configured</p>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Config Section */}
+            <AccordionItem value="config" className="border-b-0">
+              <AccordionTrigger className="px-6 hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Agent Configuration</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                {selectedAgent.config && Object.keys(selectedAgent.config).length > 0 ? (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Property</th>
+                          <th className="px-3 py-2 text-left font-medium">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {Object.entries(getConfigValues(selectedAgent.config)).map(([key, value]) => (
+                          <tr key={key} className="hover:bg-muted/50">
+                            <td className="px-3 py-2 text-muted-foreground capitalize">
+                              {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {typeof value === 'boolean' 
+                                ? (value ? '✓ Enabled' : '✗ Disabled')
+                                : typeof value === 'object'
+                                  ? JSON.stringify(value)
+                                  : String(value)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No configuration available</p>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          {/* Test Cases Section */}
+          <div className="border rounded-lg p-6 bg-card">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <ListChecks className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">
+                  Test Cases ({selectedTestCaseIds.size} of {testCases.length} selected)
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectAllTestCases}
+                  disabled={selectedTestCaseIds.size === testCases.length}
+                >
+                  Select All
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={deselectAllTestCases}
+                  disabled={selectedTestCaseIds.size === 0}
+                >
+                  Deselect All
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddForm(true)}
+                  disabled={showAddForm}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Test Case
+                </Button>
+              </div>
+            </div>
+
+            {testCases.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No test cases found for this agent.</p>
+                <p className="text-sm mt-1">
+                  <Link href={`/dashboard/agents/${selectedAgentId}`} className="text-primary underline">
+                    Generate test cases
+                  </Link>
+                  {" "}or add them manually below.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Add Test Case Form */}
+                {showAddForm && (
+                  <div className="border-2 border-dashed border-primary/30 rounded-lg p-5 bg-primary/5 space-y-4 mb-4">
+                    <h3 className="font-semibold text-primary">Add New Test Case</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Name *</Label>
+                        <Input
+                          value={newTestCase.name}
+                          onChange={(e) =>
+                            setNewTestCase({ ...newTestCase, name: e.target.value })
+                          }
+                          placeholder="Test case name"
+                          className="bg-background"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Category *</Label>
+                        <Select
+                          value={newTestCase.category}
+                          onValueChange={(v) => {
+                            setNewTestCase({ ...newTestCase, category: v });
+                            if (v !== "__custom__") setCustomCategory("");
+                          }}
+                        >
+                          <SelectTrigger className="bg-background">
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {existingCategories.map((cat) => (
+                              <SelectItem key={cat} value={cat}>
+                                {cat}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__custom__">
+                              <span className="flex items-center gap-2">
+                                <Plus className="h-3 w-3" />
+                                Custom Category
+                              </span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {newTestCase.category === "__custom__" && (
+                          <Input
+                            value={customCategory}
+                            onChange={(e) => setCustomCategory(e.target.value)}
+                            placeholder="Enter custom category name"
+                            className="mt-2 bg-background"
+                          />
+                        )}
+                      </div>
+                      <div className="md:col-span-2 space-y-2">
+                        <Label className="text-sm font-medium">Scenario *</Label>
+                        <Input
+                          value={newTestCase.scenario}
+                          onChange={(e) =>
+                            setNewTestCase({ ...newTestCase, scenario: e.target.value })
+                          }
+                          placeholder="Describe the test scenario..."
+                          className="bg-background"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Expected Outcome</Label>
+                        <Input
+                          value={newTestCase.expectedOutcome}
+                          onChange={(e) =>
+                            setNewTestCase({
+                              ...newTestCase,
+                              expectedOutcome: e.target.value,
+                            })
+                          }
+                          placeholder="What should happen"
+                          className="bg-background"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Priority</Label>
+                        <Select
+                          value={newTestCase.priority}
+                          onValueChange={(v) =>
+                            setNewTestCase({
+                              ...newTestCase,
+                              priority: v as "high" | "medium" | "low",
+                            })
+                          }
+                        >
+                          <SelectTrigger className="bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="low">Low</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <Button onClick={handleAddTestCase} disabled={!newTestCase.name || !newTestCase.scenario || (!newTestCase.category || (newTestCase.category === "__custom__" && !customCategory))}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Test Case
+                      </Button>
+                      <Button variant="outline" onClick={() => {
+                        setShowAddForm(false);
+                        setNewTestCase({ name: "", scenario: "", category: "", expectedOutcome: "", priority: "medium" });
+                        setCustomCategory("");
+                      }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Test Cases Table */}
+                <div className="border rounded-lg overflow-hidden shadow-sm">
+                  <table className="w-full">
+                    <thead className="bg-muted/70">
+                      <tr>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-12">
+                          <input
+                            type="checkbox"
+                            checked={selectedTestCaseIds.size === testCases.length && testCases.length > 0}
+                            onChange={(e) => e.target.checked ? selectAllTestCases() : deselectAllTestCases()}
+                            className="rounded"
+                          />
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-44">
+                          Category
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-56">
+                          Test Case
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Scenario
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
+                          Priority
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(() => {
+                        const categoryGroups = new Map<string, TestCase[]>();
+                        testCases.forEach((tc) => {
+                          const category = tc.category || "General";
+                          const group = categoryGroups.get(category) || [];
+                          group.push(tc);
+                          categoryGroups.set(category, group);
+                        });
+
+                        const rows: React.ReactNode[] = [];
+                        categoryGroups.forEach((cases, category) => {
+                          cases.forEach((tc, idx) => {
+                            const isEditing = editingTestCase === tc.id;
+                            const isSelected = selectedTestCaseIds.has(tc.id);
+                            
+                            rows.push(
+                              <tr key={tc.id} className={`
+                                ${idx === 0 ? 'border-t-2 border-t-border' : ''} 
+                                ${isEditing ? 'bg-primary/5 ring-2 ring-primary/20 ring-inset' : isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'}
+                                transition-colors
+                              `}>
+                                {idx === 0 && (
+                                  <td
+                                    rowSpan={cases.length}
+                                    className="px-4 py-3 align-middle text-center bg-muted/20 border-r border-border"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={cases.every(c => selectedTestCaseIds.has(c.id))}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedTestCaseIds(prev => {
+                                            const newSet = new Set(prev);
+                                            cases.forEach(c => newSet.add(c.id));
+                                            return newSet;
+                                          });
+                                        } else {
+                                          setSelectedTestCaseIds(prev => {
+                                            const newSet = new Set(prev);
+                                            cases.forEach(c => newSet.delete(c.id));
+                                            return newSet;
+                                          });
+                                        }
+                                      }}
+                                      className="rounded"
+                                    />
+                                  </td>
+                                )}
+                                {idx === 0 && (
+                                  <td
+                                    rowSpan={cases.length}
+                                    className="px-4 py-3 align-top bg-muted/20 border-r border-border"
+                                  >
+                                    <div className="sticky top-0">
+                                      <Badge className={`${categoryColors[category] || "bg-slate-100 text-slate-800"} font-medium`}>
+                                        {category}
+                                      </Badge>
+                                      <p className="text-xs text-muted-foreground mt-2">
+                                        {cases.length} test case{cases.length !== 1 ? 's' : ''}
+                                      </p>
+                                    </div>
+                                  </td>
+                                )}
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleTestCase(tc.id)}
+                                      className="rounded"
+                                    />
+                                    {isEditing ? (
+                                      <Input
+                                        value={newTestCase.name}
+                                        onChange={(e) => setNewTestCase({ ...newTestCase, name: e.target.value })}
+                                        className="h-8 text-sm"
+                                        autoFocus
+                                      />
+                                    ) : (
+                                      <span className="text-sm font-medium text-foreground">{tc.name}</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {isEditing ? (
+                                    <Input
+                                      value={newTestCase.scenario}
+                                      onChange={(e) => setNewTestCase({ ...newTestCase, scenario: e.target.value })}
+                                      className="h-8 text-sm"
+                                    />
+                                  ) : (
+                                    <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                      {tc.scenario}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {isEditing ? (
+                                    <Select
+                                      value={newTestCase.priority}
+                                      onValueChange={(v) => setNewTestCase({ ...newTestCase, priority: v as "high" | "medium" | "low" })}
+                                    >
+                                      <SelectTrigger className="h-8 text-xs w-24">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="high">High</SelectItem>
+                                        <SelectItem value="medium">Medium</SelectItem>
+                                        <SelectItem value="low">Low</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Badge
+                                      variant="secondary"
+                                      className={`${priorityColors[tc.priority]} text-xs font-medium`}
+                                    >
+                                      {tc.priority}
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center justify-center gap-1">
+                                    {isEditing ? (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                          onClick={handleSaveEdit}
+                                        >
+                                          <Check className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                          onClick={handleCancelEdit}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                          onClick={() => handleEditTestCase(tc)}
+                                        >
+                                          <Edit2 className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                                          onClick={() => handleDeleteTestCase(tc.id)}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        });
+                        return rows;
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Add Test Case Form */}
-          {showAddForm && (
-            <div className="border rounded-lg p-4 bg-muted/30 space-y-4">
-              <h3 className="font-medium">Add New Test Case</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Name</label>
-                  <Input
-                    value={newTestCase.name}
-                    onChange={(e) =>
-                      setNewTestCase({ ...newTestCase, name: e.target.value })
-                    }
-                    placeholder="Test case name"
-                  />
+          {/* Test Run Configuration */}
+          {testCases.length > 0 && (
+            <div className="border rounded-lg p-6 bg-muted/30 space-y-4">
+              <h3 className="font-semibold">Test Run Configuration</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Call Batching Info */}
+                <div className="flex items-center justify-between space-x-4 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium">
+                      Call Batching Enabled
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Test cases grouped by category - each category = 1 voice call
+                    </p>
+                  </div>
+                  <Badge className="bg-green-100 text-green-800">Active</Badge>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Category</label>
-                  <Input
-                    value={newTestCase.category}
-                    onChange={(e) =>
-                      setNewTestCase({ ...newTestCase, category: e.target.value })
-                    }
-                    placeholder="Category"
-                  />
+
+                {/* Test Summary */}
+                <div className="p-4 border rounded-lg bg-background">
+                  <Label className="text-sm font-medium">Test Summary</Label>
+                  <div className="mt-2 space-y-1 text-sm">
+                    <p><span className="text-muted-foreground">Selected Test Cases:</span> {selectedTestCaseIds.size}</p>
+                    <p><span className="text-muted-foreground">Categories:</span> {new Set(selectedTestCases.map(tc => tc.category)).size}</p>
+                    <p className="text-green-600 font-medium">
+                      <span className="text-muted-foreground">Estimated Calls:</span> ~{new Set(selectedTestCases.map(tc => tc.category)).size} calls (batched)
+                    </p>
+                  </div>
                 </div>
-                <div className="col-span-2 space-y-2">
-                  <label className="text-sm font-medium">Scenario</label>
-                  <Input
-                    value={newTestCase.scenario}
-                    onChange={(e) =>
-                      setNewTestCase({ ...newTestCase, scenario: e.target.value })
-                    }
-                    placeholder="Describe the test scenario..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Expected Outcome</label>
-                  <Input
-                    value={newTestCase.expectedOutcome}
-                    onChange={(e) =>
-                      setNewTestCase({
-                        ...newTestCase,
-                        expectedOutcome: e.target.value,
-                      })
-                    }
-                    placeholder="What should happen"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Priority</label>
-                  <Select
-                    value={newTestCase.priority}
-                    onValueChange={(v) =>
-                      setNewTestCase({
-                        ...newTestCase,
-                        priority: v as "high" | "medium" | "low",
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleAddTestCase}>Add</Button>
-                <Button variant="outline" onClick={() => setShowAddForm(false)}>
-                  Cancel
-                </Button>
               </div>
             </div>
           )}
 
-          {/* Test Cases Table - Grouped by Category */}
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium w-40">
-                    Category
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
-                    Test Case
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium max-w-md">
-                    Scenario
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium w-24">
-                    Priority
-                  </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium w-20">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {(() => {
-                  // Group test cases by category for rowspan display
-                  const categoryGroups = new Map<string, TestCase[]>();
-                  testCases.forEach((tc) => {
-                    const category = tc.category || "General";
-                    const group = categoryGroups.get(category) || [];
-                    group.push(tc);
-                    categoryGroups.set(category, group);
-                  });
-
-                  const rows: React.ReactNode[] = [];
-                  categoryGroups.forEach((cases, category) => {
-                    cases.forEach((tc, idx) => {
-                      rows.push(
-                        <tr key={tc.id} className={`hover:bg-muted/50 ${idx === 0 ? 'border-t-2 border-t-muted-foreground/20' : ''}`}>
-                          {idx === 0 && (
-                            <td
-                              rowSpan={cases.length}
-                              className="px-4 py-3 text-sm font-semibold align-top bg-muted/30 border-r"
-                            >
-                              <Badge className={categoryColors[category] || "bg-gray-100 text-gray-800"}>
-                                {category}
-                              </Badge>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {cases.length} test cases
-                              </p>
-                            </td>
-                          )}
-                          <td className="px-4 py-3 text-sm font-medium">{tc.name}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground max-w-md">
-                            <p className="truncate" title={tc.scenario}>{tc.scenario}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                priorityColors[tc.priority]
-                              }`}
-                            >
-                              {tc.priority}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteTestCase(tc.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-muted-foreground hover:text-red-500" />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    });
-                  });
-                  return rows;
-                })()}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Test Run Configuration */}
-          <div className="border rounded-lg p-6 bg-muted/30 space-y-4">
-            <h3 className="font-semibold">Test Run Configuration</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Enable Concurrency Toggle */}
-              <div className="flex items-center justify-between space-x-4 p-4 border rounded-lg">
-                <div className="space-y-0.5">
-                  <Label htmlFor="concurrency-toggle" className="text-sm font-medium">
-                    Enable Concurrency
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Run multiple calls simultaneously
-                  </p>
-                </div>
-                <Switch
-                  id="concurrency-toggle"
-                  checked={enableConcurrency}
-                  onCheckedChange={setEnableConcurrency}
-                />
-              </div>
-
-              {/* Concurrent Calls Input */}
-              {enableConcurrency && (
-                <div className="space-y-2 p-4 border rounded-lg">
-                  <Label htmlFor="concurrent-calls" className="text-sm font-medium">
-                    Concurrent Calls
-                  </Label>
-                  <div className="flex items-center gap-3">
-                    <Slider
-                      value={[concurrentCalls]}
-                      onValueChange={(value) => setConcurrentCalls(value[0])}
-                      min={2}
-                      max={20}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <span className="text-sm font-mono w-8 text-center">{concurrentCalls}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Number of parallel calls per test run
-                  </p>
-                </div>
-              )}
-
-              {/* Enable Batching Toggle */}
-              <div className="flex items-center justify-between space-x-4 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
-                <div className="space-y-0.5">
-                  <Label htmlFor="batching-toggle" className="text-sm font-medium">
-                    Enable Call Batching
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Test multiple scenarios in a single call
-                  </p>
-                </div>
-                <Switch
-                  id="batching-toggle"
-                  checked={enableBatching}
-                  onCheckedChange={setEnableBatching}
-                />
-              </div>
-
-              {/* Test Summary */}
-              <div className="p-4 border rounded-lg">
-                <Label className="text-sm font-medium">Test Summary</Label>
-                <div className="mt-2 space-y-1 text-sm">
-                  <p><span className="text-muted-foreground">Total Test Cases:</span> {testCases.length}</p>
-                  <p><span className="text-muted-foreground">Categories:</span> {new Set(testCases.map(tc => tc.category)).size}</p>
-                  {enableBatching ? (
-                    <p className="text-green-600 font-medium">
-                      <span className="text-muted-foreground">Estimated Calls:</span> ~{new Set(testCases.map(tc => tc.category)).size} calls (batched)
-                    </p>
-                  ) : (
-                    <p><span className="text-muted-foreground">Total Calls:</span> {testCases.length} calls</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Start Running Tests Button */}
-          <div className="flex justify-end gap-3 pt-4">
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={handleStartTests}
-              disabled={testCases.length === 0 || isStartingTests}
-            >
-              <PlayCircle className="mr-2 h-5 w-5" />
-              Run Without Batching
-            </Button>
-            <Button
-              size="lg"
-              onClick={handlePlanBatches}
-              disabled={testCases.length === 0 || isStartingTests}
-            >
-              <Layers className="mr-2 h-5 w-5" />
-              Plan Call Batches & Run
-            </Button>
-          </div>
+          {testCases.length > 0 && (
+            <div className="flex justify-end gap-3 pt-4">
+              <Button
+                size="lg"
+                onClick={handlePlanBatches}
+                disabled={selectedTestCaseIds.size === 0 || isStartingTests}
+              >
+                <Layers className="mr-2 h-5 w-5" />
+                Plan Call Batches & Run
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1025,6 +1068,9 @@ export default function NewTestRunPage() {
             </DialogTitle>
             <DialogDescription>
               Each category = 1 voice call. All test cases in a category will be tested in a single conversation.
+              <span className="block mt-1 text-primary font-medium">
+                💡 Drag test cases between categories to reorganize batches.
+              </span>
             </DialogDescription>
           </DialogHeader>
 
@@ -1059,7 +1105,7 @@ export default function NewTestRunPage() {
             </div>
             <div className="ml-auto flex items-center">
               <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50">
-                Saving {testCases.length - callBatches.length} calls vs single-test mode
+                Saving {selectedTestCaseIds.size - callBatches.length} calls vs single-test mode
               </Badge>
             </div>
           </div>
@@ -1077,7 +1123,34 @@ export default function NewTestRunPage() {
               </thead>
               <tbody className="divide-y">
                 {callBatches.map((batch, batchIndex) => (
-                  <tr key={batch.id} className="hover:bg-muted/50">
+                  <tr 
+                    key={batch.id} 
+                    className={`transition-colors ${
+                      dragOverBatchId === batch.id && draggedTestCase?.fromBatchId !== batch.id
+                        ? 'bg-primary/10 ring-2 ring-primary ring-inset'
+                        : 'hover:bg-muted/50'
+                    }`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                        setDragOverBatchId(batch.id);
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDragOverBatchId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                        moveTestCase(draggedTestCase.testCase.id, draggedTestCase.fromBatchId, batch.id);
+                      }
+                      setDraggedTestCase(null);
+                      setDragOverBatchId(null);
+                    }}
+                  >
                     <td className="px-4 py-3">
                       <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm">
                         {batchIndex + 1}
@@ -1093,13 +1166,29 @@ export default function NewTestRunPage() {
                         {batch.testCases.map((tc, tcIndex) => (
                           <div
                             key={tc.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-muted rounded text-xs group hover:bg-muted/80"
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedTestCase({ testCase: tc, fromBatchId: batch.id });
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', tc.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedTestCase(null);
+                              setDragOverBatchId(null);
+                            }}
+                            className={`inline-flex items-center gap-1 px-2 py-1 bg-muted rounded text-xs group cursor-grab active:cursor-grabbing transition-all ${
+                              draggedTestCase?.testCase.id === tc.id ? 'opacity-50 scale-95' : 'hover:bg-muted/80 hover:shadow-sm'
+                            }`}
                           >
+                            <GripVertical className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 mr-0.5" />
                             <span className="text-muted-foreground">{tcIndex + 1}.</span>
                             <span className="max-w-[200px] truncate">{tc.name}</span>
                             <button
                               className="ml-1 opacity-0 group-hover:opacity-100 hover:text-red-500"
-                              onClick={() => removeFromBatch(tc.id, batch.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFromBatch(tc.id, batch.id);
+                              }}
                             >
                               <X className="h-3 w-3" />
                             </button>
