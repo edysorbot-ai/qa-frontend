@@ -32,6 +32,7 @@ import {
   Settings,
   LogOut,
   ChevronUp,
+  Users,
 } from "lucide-react";
 
 const menuItems = [
@@ -39,6 +40,11 @@ const menuItems = [
     title: "Dashboard",
     icon: LayoutDashboard,
     href: "/dashboard",
+  },
+  {
+    title: "Agents",
+    icon: Users,
+    href: "/dashboard/agents",
   },
   {
     title: "Test Runs",
@@ -84,7 +90,11 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton
                         asChild
-                        isActive={pathname === item.href}
+                        isActive={
+                          item.href === "/dashboard"
+                            ? pathname === item.href
+                            : pathname.startsWith(item.href)
+                        }
                       >
                         <a href={item.href}>
                           <item.icon className="h-4 w-4" />
