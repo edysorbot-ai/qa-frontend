@@ -51,6 +51,15 @@ import {
   Clock,
   BarChart3,
   GitCompare,
+  Edit2,
+  X,
+  Check,
+  Workflow,
+  Database,
+  Variable,
+  BookOpen,
+  FileQuestion,
+  ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -62,6 +71,7 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import Link from "next/link";
+import { TestFlowTab, WorkflowExecutionPlan, TestCaseData as WorkflowTestCase } from "@/components/workflow";
 
 type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime";
 
@@ -126,6 +136,23 @@ interface TestCase {
   priority: "high" | "medium" | "low";
 }
 
+interface DynamicVariable {
+  name: string;
+  pattern: string;
+  source: string;
+  defaultValue?: string;
+  testValue?: string;
+}
+
+interface KnowledgeBaseItem {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  status?: string;
+  url?: string;
+}
+
 interface TestRun {
   id: string;
   name: string;
@@ -143,6 +170,25 @@ interface AgentAnalysisResult {
   capabilities: string[];
   expectedBehaviors: string[];
   configs: Record<string, any>;
+}
+
+interface DynamicVariable {
+  name: string;
+  pattern: string;
+  source: string;
+  defaultValue?: string;
+  description?: string;
+  testValue?: string; // User-provided test value
+}
+
+interface KnowledgeBaseItem {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  url?: string;
+  status?: string;
+  createdAt?: string;
 }
 
 const providerNames: Record<Provider, string> = {
@@ -230,6 +276,34 @@ export default function AgentDetailPage() {
     expectedOutcome: "",
     priority: "medium" as "high" | "medium" | "low",
   });
+  
+  // Edit test case state
+  const [editingTestCaseId, setEditingTestCaseId] = useState<string | null>(null);
+  const [editTestCase, setEditTestCase] = useState({
+    name: "",
+    scenario: "",
+    category: "",
+    expectedOutcome: "",
+    priority: "medium" as "high" | "medium" | "low",
+  });
+
+  // Generated test cases dialog state
+  const [showGeneratedTestCasesDialog, setShowGeneratedTestCasesDialog] = useState(false);
+  const [generatedTestCases, setGeneratedTestCases] = useState<TestCase[]>([]);
+  const [selectedGeneratedTestCases, setSelectedGeneratedTestCases] = useState<Set<string>>(new Set());
+  const [isAddingSelectedTestCases, setIsAddingSelectedTestCases] = useState(false);
+
+  // Prompt comparison state
+  const [selectedPromptVersions, setSelectedPromptVersions] = useState<string[]>([]);
+  const [showPromptComparison, setShowPromptComparison] = useState(false);
+
+  // Dynamic Variables state
+  const [dynamicVariables, setDynamicVariables] = useState<DynamicVariable[]>([]);
+  const [isLoadingVariables, setIsLoadingVariables] = useState(false);
+
+  // Knowledge Base state
+  const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>([]);
+  const [isLoadingKnowledgeBase, setIsLoadingKnowledgeBase] = useState(false);
 
   // Get unique categories from existing test cases
   const existingCategories = [...new Set(savedTestCases.map(tc => tc.category))].filter(Boolean);
@@ -382,6 +456,55 @@ export default function AgentDetailPage() {
     }
   }, [agentId, getToken]);
 
+  // Fetch dynamic variables for this agent
+  const fetchDynamicVariables = useCallback(async () => {
+    try {
+      setIsLoadingVariables(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.agents.dynamicVariables(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Add testValue field for user input
+        const varsWithTestValue = (data.variables || []).map((v: DynamicVariable) => ({
+          ...v,
+          testValue: v.defaultValue || '',
+        }));
+        setDynamicVariables(varsWithTestValue);
+      }
+    } catch (error) {
+      console.error("Error fetching dynamic variables:", error);
+    } finally {
+      setIsLoadingVariables(false);
+    }
+  }, [agentId, getToken]);
+
+  // Fetch knowledge base for this agent
+  const fetchKnowledgeBase = useCallback(async () => {
+    try {
+      setIsLoadingKnowledgeBase(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.agents.knowledgeBase(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setKnowledgeBase(data.items || []);
+      }
+    } catch (error) {
+      console.error("Error fetching knowledge base:", error);
+    } finally {
+      setIsLoadingKnowledgeBase(false);
+    }
+  }, [agentId, getToken]);
+
   // Handle test run selection for comparison
   const handleRunSelectionChange = (runId: string, checked: boolean) => {
     setSelectedRunIds(prev => {
@@ -402,7 +525,7 @@ export default function AgentDetailPage() {
     router.push(`/dashboard/test-runs/compare?ids=${ids}`);
   };
 
-  // Generate test cases using AI (auto-saved by backend)
+  // Generate test cases using AI (shows dialog for selection)
   const handleGenerateTestCases = async () => {
     if (!agent) return;
 
@@ -413,27 +536,31 @@ export default function AgentDetailPage() {
       const token = await getToken();
       if (!token) return;
 
+      // Call a preview endpoint that generates but doesn't save
       const response = await fetch(api.endpoints.agents.generateTestCases(agentId), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ preview: true }), // Request preview mode
       });
 
       if (response.ok) {
         const data = await response.json();
-        // Test cases are auto-saved by backend, so add them to savedTestCases
-        const newSavedCases = (data.testCases || []).map((tc: any) => ({
-          id: tc.id,
+        // Store generated test cases for selection
+        const generatedCases = (data.testCases || []).map((tc: any, index: number) => ({
+          id: tc.id || `temp-${index}-${Date.now()}`, // Temp ID for selection
           name: tc.name,
           scenario: tc.scenario,
           category: tc.category || 'General',
-          expectedOutcome: tc.expected_behavior || '',
+          expectedOutcome: tc.expected_behavior || tc.expectedOutcome || '',
           priority: tc.priority || 'medium',
         }));
-        setSavedTestCases([...savedTestCases, ...newSavedCases]);
+        setGeneratedTestCases(generatedCases);
+        // Select all by default
+        setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
+        setShowGeneratedTestCasesDialog(true);
       } else {
         const errorData = await response.json();
         setError(errorData.message || errorData.error || "Failed to generate test cases");
@@ -443,6 +570,85 @@ export default function AgentDetailPage() {
       setError("Failed to generate test cases");
     } finally {
       setIsGeneratingTests(false);
+    }
+  };
+
+  // Handle selection toggle for generated test cases
+  const handleGeneratedTestCaseSelection = (testCaseId: string, checked: boolean) => {
+    setSelectedGeneratedTestCases(prev => {
+      const newSet = new Set(prev);
+      if (checked) {
+        newSet.add(testCaseId);
+      } else {
+        newSet.delete(testCaseId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select/deselect all generated test cases
+  const handleSelectAllGeneratedTestCases = (checked: boolean) => {
+    if (checked) {
+      setSelectedGeneratedTestCases(new Set(generatedTestCases.map(tc => tc.id)));
+    } else {
+      setSelectedGeneratedTestCases(new Set());
+    }
+  };
+
+  // Add selected generated test cases to saved test cases
+  const handleAddSelectedTestCases = async () => {
+    if (selectedGeneratedTestCases.size === 0) return;
+
+    setIsAddingSelectedTestCases(true);
+    setError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      // Get only selected test cases
+      const selectedCases = generatedTestCases.filter(tc => selectedGeneratedTestCases.has(tc.id));
+
+      const response = await fetch(api.endpoints.agents.testCases(agentId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          testCases: selectedCases.map(tc => ({
+            name: tc.name,
+            scenario: tc.scenario,
+            category: tc.category,
+            expectedOutcome: tc.expectedOutcome,
+            priority: tc.priority,
+          }))
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newCases = (data.testCases || []).map((tc: any) => ({
+          id: tc.id,
+          name: tc.name,
+          scenario: tc.scenario,
+          category: tc.category || 'General',
+          expectedOutcome: tc.expected_behavior || '',
+          priority: tc.priority || 'medium',
+        }));
+        setSavedTestCases([...savedTestCases, ...newCases]);
+        setShowGeneratedTestCasesDialog(false);
+        setGeneratedTestCases([]);
+        setSelectedGeneratedTestCases(new Set());
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to add test cases");
+      }
+    } catch (error) {
+      console.error("Error adding test cases:", error);
+      setError("Failed to add test cases");
+    } finally {
+      setIsAddingSelectedTestCases(false);
     }
   };
 
@@ -507,6 +713,155 @@ export default function AgentDetailPage() {
     setShowAddForm(false);
   };
 
+  // Delete a test case
+  const handleDeleteTestCase = async (testCaseId: string) => {
+    if (!confirm("Are you sure you want to delete this test case?")) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.testCases.delete(testCaseId), {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setSavedTestCases(savedTestCases.filter(tc => tc.id !== testCaseId));
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to delete test case");
+      }
+    } catch (error) {
+      console.error("Error deleting test case:", error);
+      setError("Failed to delete test case");
+    }
+  };
+
+  // Start editing a test case
+  const handleStartEditTestCase = (tc: TestCase) => {
+    setEditingTestCaseId(tc.id);
+    setEditTestCase({
+      name: tc.name,
+      scenario: tc.scenario,
+      category: tc.category,
+      expectedOutcome: tc.expectedOutcome,
+      priority: tc.priority,
+    });
+  };
+
+  // Cancel editing
+  const handleCancelEditTestCase = () => {
+    setEditingTestCaseId(null);
+    setEditTestCase({
+      name: "",
+      scenario: "",
+      category: "",
+      expectedOutcome: "",
+      priority: "medium",
+    });
+  };
+
+  // Save edited test case
+  const handleSaveEditTestCase = async () => {
+    if (!editingTestCaseId || !editTestCase.name || !editTestCase.scenario) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.testCases.update(editingTestCaseId), {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: editTestCase.name,
+          scenario: editTestCase.scenario,
+          category: editTestCase.category,
+          expected_behavior: editTestCase.expectedOutcome,
+          priority: editTestCase.priority,
+        }),
+      });
+
+      if (response.ok) {
+        setSavedTestCases(savedTestCases.map(tc => 
+          tc.id === editingTestCaseId 
+            ? { ...tc, ...editTestCase }
+            : tc
+        ));
+        handleCancelEditTestCase();
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to update test case");
+      }
+    } catch (error) {
+      console.error("Error updating test case:", error);
+      setError("Failed to update test case");
+    }
+  };
+
+  // Save workflow
+  const handleSaveWorkflow = async (workflowData: any) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.agents.workflow(agentId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(workflowData),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save workflow");
+      }
+    } catch (error) {
+      console.error("Error saving workflow:", error);
+      throw error;
+    }
+  };
+
+  // Run workflow-based tests
+  const handleRunWorkflow = async (executionPlan: WorkflowExecutionPlan) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      // Create a test run with workflow execution mode
+      const response = await fetch(api.endpoints.testRuns.startWorkflow, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agent_id: agentId,
+          name: `Workflow Test - ${new Date().toLocaleString()}`,
+          execution_plan: executionPlan,
+          execution_mode: "workflow",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Navigate to the test run page
+        router.push(`/dashboard/test-runs/${data.testRun.id}`);
+      } else {
+        throw new Error("Failed to start workflow test run");
+      }
+    } catch (error) {
+      console.error("Error running workflow:", error);
+      setError("Failed to start test run");
+    }
+  };
+
   // Check if prompt or config has been updated in the provider
   const checkForUpdates = async (token: string) => {
     try {
@@ -554,25 +909,70 @@ export default function AgentDetailPage() {
     fetchAgent();
     fetchTestCases();
     fetchTestRuns();
-  }, [fetchAgent, fetchTestCases, fetchTestRuns]);
+    fetchDynamicVariables();
+    fetchKnowledgeBase();
+  }, [fetchAgent, fetchTestCases, fetchTestRuns, fetchDynamicVariables, fetchKnowledgeBase]);
 
-  // Analyze the prompt
-  const analyzePrompt = (prompt: string, config: Record<string, any>) => {
+  // Analyze the prompt using backend AI
+  const analyzePrompt = async (prompt: string, config: Record<string, any>) => {
     setIsAnalyzing(true);
 
-    // Perform local analysis of the prompt
-    const analysis: PromptAnalysis = {
-      purpose: extractPurpose(prompt),
-      capabilities: extractCapabilities(prompt, config),
-      expectedBehaviors: extractExpectedBehaviors(prompt),
-      potentialIssues: analyzePromptIssues(prompt, config),
-      strengths: extractStrengths(prompt),
-      weaknesses: extractWeaknesses(prompt),
-      overallScore: calculatePromptScore(prompt, config),
-    };
+    try {
+      const token = await getToken();
+      if (!token) {
+        setIsAnalyzing(false);
+        return;
+      }
 
-    setPromptAnalysis(analysis);
-    setIsAnalyzing(false);
+      // Call backend API for AI-powered analysis
+      const response = await fetch(api.endpoints.agents.analyzePrompt(agentId), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const analysis = await response.json();
+        setPromptAnalysis({
+          purpose: analysis.purpose || 'Purpose could not be determined',
+          capabilities: analysis.capabilities || [],
+          expectedBehaviors: analysis.expectedBehaviors || [],
+          potentialIssues: [], // Not using issues anymore
+          strengths: analysis.strengths || [],
+          weaknesses: analysis.weaknesses || [],
+          overallScore: 0, // Not using score anymore
+        });
+      } else {
+        // Fallback to basic local analysis if API fails
+        const fallbackAnalysis: PromptAnalysis = {
+          purpose: extractPurpose(prompt),
+          capabilities: extractCapabilities(prompt, config),
+          expectedBehaviors: extractExpectedBehaviors(prompt),
+          potentialIssues: [],
+          strengths: extractStrengths(prompt),
+          weaknesses: extractWeaknesses(prompt),
+          overallScore: 0,
+        };
+        setPromptAnalysis(fallbackAnalysis);
+      }
+    } catch (error) {
+      console.error('Error analyzing prompt:', error);
+      // Fallback to basic local analysis
+      const fallbackAnalysis: PromptAnalysis = {
+        purpose: extractPurpose(prompt),
+        capabilities: extractCapabilities(prompt, config),
+        expectedBehaviors: extractExpectedBehaviors(prompt),
+        potentialIssues: [],
+        strengths: extractStrengths(prompt),
+        weaknesses: extractWeaknesses(prompt),
+        overallScore: 0,
+      };
+      setPromptAnalysis(fallbackAnalysis);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   // Extract purpose from prompt
@@ -952,6 +1352,197 @@ export default function AgentDetailPage() {
     });
   };
 
+  // Prompt version selection handler
+  const handlePromptVersionSelect = (versionId: string, checked: boolean) => {
+    if (checked) {
+      // Max 2 selections
+      if (selectedPromptVersions.length < 2) {
+        setSelectedPromptVersions([...selectedPromptVersions, versionId]);
+      }
+    } else {
+      setSelectedPromptVersions(selectedPromptVersions.filter(id => id !== versionId));
+      if (showPromptComparison) {
+        setShowPromptComparison(false);
+      }
+    }
+  };
+
+  // Get prompt content by version id
+  const getPromptByVersionId = (versionId: string): { prompt: string; version: number; date: string } | null => {
+    if (versionId === 'current') {
+      return {
+        prompt: agent?.prompt || '',
+        version: promptVersions[0]?.version_number || 1,
+        date: promptVersions[0]?.created_at || ''
+      };
+    }
+    const version = promptVersions.find(v => v.id === versionId);
+    if (version) {
+      return {
+        prompt: version.prompt,
+        version: version.version_number,
+        date: version.created_at
+      };
+    }
+    return null;
+  };
+
+  // Compute diff between two strings using Myers diff algorithm (simplified)
+  // This produces a proper line-by-line diff like VS Code
+  const computeDiff = (oldText: string, newText: string): DiffResult[] => {
+    const oldLines = oldText.split('\n');
+    const newLines = newText.split('\n');
+    
+    // Build a map of line content to positions for quick lookup
+    const buildLineMap = (lines: string[]): Map<string, number[]> => {
+      const map = new Map<string, number[]>();
+      lines.forEach((line, idx) => {
+        const positions = map.get(line) || [];
+        positions.push(idx);
+        map.set(line, positions);
+      });
+      return map;
+    };
+    
+    // Find longest common subsequence
+    const findLCS = (a: string[], b: string[]): number[][] => {
+      const m = a.length;
+      const n = b.length;
+      const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+      
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (a[i - 1] === b[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+      return dp;
+    };
+    
+    // Backtrack to find the actual LCS
+    const backtrack = (dp: number[][], a: string[], b: string[]): Set<string> => {
+      const lcsIndices: { oldIdx: number; newIdx: number }[] = [];
+      let i = a.length, j = b.length;
+      
+      while (i > 0 && j > 0) {
+        if (a[i - 1] === b[j - 1]) {
+          lcsIndices.unshift({ oldIdx: i - 1, newIdx: j - 1 });
+          i--;
+          j--;
+        } else if (dp[i - 1][j] > dp[i][j - 1]) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+      
+      // Create pairs of matching indices
+      const matchedOld = new Set(lcsIndices.map(l => l.oldIdx));
+      const matchedNew = new Set(lcsIndices.map(l => l.newIdx));
+      
+      return new Set([...matchedOld].map(idx => `old:${idx}`).concat([...matchedNew].map(idx => `new:${idx}`)));
+    };
+    
+    const dp = findLCS(oldLines, newLines);
+    
+    // Build the diff result
+    const result: DiffResult[] = [];
+    let oldIdx = 0;
+    let newIdx = 0;
+    
+    // Track matched lines using LCS
+    const matchedPairs: { oldIdx: number; newIdx: number }[] = [];
+    let i = oldLines.length, j = newLines.length;
+    
+    while (i > 0 && j > 0) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        matchedPairs.unshift({ oldIdx: i - 1, newIdx: j - 1 });
+        i--;
+        j--;
+      } else if (dp[i - 1][j] > dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+    
+    // Build result with proper alignment
+    let matchIdx = 0;
+    oldIdx = 0;
+    newIdx = 0;
+    
+    while (oldIdx < oldLines.length || newIdx < newLines.length) {
+      const nextMatch = matchedPairs[matchIdx];
+      
+      if (nextMatch && oldIdx === nextMatch.oldIdx && newIdx === nextMatch.newIdx) {
+        // Matching line
+        result.push({
+          type: 'unchanged',
+          oldLineNum: oldIdx + 1,
+          newLineNum: newIdx + 1,
+          oldContent: oldLines[oldIdx],
+          newContent: newLines[newIdx]
+        });
+        oldIdx++;
+        newIdx++;
+        matchIdx++;
+      } else {
+        // Check if we need to add deleted lines before next match
+        const oldUntil = nextMatch ? nextMatch.oldIdx : oldLines.length;
+        const newUntil = nextMatch ? nextMatch.newIdx : newLines.length;
+        
+        // Add deleted and added lines side by side where possible
+        while (oldIdx < oldUntil || newIdx < newUntil) {
+          if (oldIdx < oldUntil && newIdx < newUntil) {
+            // Both have content - show as modified
+            result.push({
+              type: 'modified',
+              oldLineNum: oldIdx + 1,
+              newLineNum: newIdx + 1,
+              oldContent: oldLines[oldIdx],
+              newContent: newLines[newIdx]
+            });
+            oldIdx++;
+            newIdx++;
+          } else if (oldIdx < oldUntil) {
+            // Only old has content - deleted
+            result.push({
+              type: 'deleted',
+              oldLineNum: oldIdx + 1,
+              newLineNum: null,
+              oldContent: oldLines[oldIdx],
+              newContent: null
+            });
+            oldIdx++;
+          } else {
+            // Only new has content - added
+            result.push({
+              type: 'added',
+              oldLineNum: null,
+              newLineNum: newIdx + 1,
+              oldContent: null,
+              newContent: newLines[newIdx]
+            });
+            newIdx++;
+          }
+        }
+      }
+    }
+    
+    return result;
+  };
+
+  type DiffResult = {
+    type: 'unchanged' | 'added' | 'deleted' | 'modified';
+    oldLineNum: number | null;
+    newLineNum: number | null;
+    oldContent: string | null;
+    newContent: string | null;
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1040,6 +1631,18 @@ export default function AgentDetailPage() {
           <TabsTrigger value="testcases">
             <TestTube2 className="mr-2 h-4 w-4" />
             Test Cases
+          </TabsTrigger>
+          <TabsTrigger value="testflow">
+            <Workflow className="mr-2 h-4 w-4" />
+            Test Flow
+          </TabsTrigger>
+          <TabsTrigger value="knowledgebase">
+            <Database className="mr-2 h-4 w-4" />
+            Knowledge Base
+          </TabsTrigger>
+          <TabsTrigger value="variables">
+            <Variable className="mr-2 h-4 w-4" />
+            Dynamic Variables
           </TabsTrigger>
           <TabsTrigger value="testruns">
             <Play className="mr-2 h-4 w-4" />
@@ -1249,29 +1852,6 @@ export default function AgentDetailPage() {
             </div>
           ) : promptAnalysis ? (
             <>
-              {/* Score Card */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Prompt Score</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-3xl font-bold ${
-                          promptAnalysis.overallScore >= 80
-                            ? "text-green-600"
-                            : promptAnalysis.overallScore >= 60
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {promptAnalysis.overallScore}
-                      </span>
-                      <span className="text-muted-foreground">/100</span>
-                    </div>
-                  </div>
-                </CardHeader>
-              </Card>
-
               {/* Analysis Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Purpose & Capabilities */}
@@ -1355,56 +1935,6 @@ export default function AgentDetailPage() {
                 </Card>
               </div>
 
-              {/* Issues & Recommendations */}
-              {promptAnalysis.potentialIssues.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Issues & Recommendations</CardTitle>
-                    <CardDescription>
-                      Suggestions to improve your agent's prompt
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {promptAnalysis.potentialIssues.map((issue, i) => (
-                        <div
-                          key={i}
-                          className={`p-4 rounded-lg border ${severityColors[issue.severity]}`}
-                        >
-                          <div className="flex items-start gap-3">
-                            {severityIcons[issue.severity]}
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm">{issue.area}</span>
-                                <Badge
-                                  variant="outline"
-                                  className={`text-xs ${
-                                    issue.type === "warning"
-                                      ? "border-orange-300 text-orange-700"
-                                      : issue.type === "improvement"
-                                      ? "border-blue-300 text-blue-700"
-                                      : "border-gray-300 text-gray-700"
-                                  }`}
-                                >
-                                  {issue.type}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground mb-2">
-                                {issue.description}
-                              </p>
-                              <div className="bg-background p-2 rounded text-sm">
-                                <span className="font-medium">Recommendation: </span>
-                                {issue.recommendation}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
               {/* Prompt Versions Accordion */}
               <Card>
                 <CardHeader>
@@ -1415,40 +1945,67 @@ export default function AgentDetailPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       )}
                     </div>
-                    {promptVersions.length > 0 && (
-                      <Badge variant="secondary" className="flex items-center gap-1">
-                        <History className="h-3 w-3" />
-                        {promptVersions.length} version{promptVersions.length !== 1 ? "s" : ""}
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {selectedPromptVersions.length === 2 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowPromptComparison(!showPromptComparison)}
+                          className="flex items-center gap-1"
+                        >
+                          <GitCompare className="h-4 w-4" />
+                          {showPromptComparison ? "Hide Comparison" : "Compare Selected"}
+                        </Button>
+                      )}
+                      {selectedPromptVersions.length > 0 && selectedPromptVersions.length < 2 && (
+                        <span className="text-xs text-muted-foreground">
+                          Select 1 more to compare
+                        </span>
+                      )}
+                      {promptVersions.length > 0 && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <History className="h-3 w-3" />
+                          {promptVersions.length} version{promptVersions.length !== 1 ? "s" : ""}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <CardDescription>
-                    View current and historical versions of the agent's prompt
+                    View current and historical versions of the agent's prompt. Select 2 versions to compare.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {mounted ? (
-                    <Accordion type="single" collapsible className="w-full">
+                    <Accordion type="single" collapsible defaultValue="current" className="w-full">
                       {/* Current Prompt */}
-                      <AccordionItem value="current">
-                        <AccordionTrigger className="hover:no-underline">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <FileText className="h-4 w-4 text-primary" />
-                            <span className="font-medium">Prompt - Current Version</span>
-                            {promptVersions.length > 0 && (
-                              <>
-                                <Badge variant="outline" className="ml-2">
-                                  v{promptVersions[0]?.version_number || 1}
-                                </Badge>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatDate(promptVersions[0].created_at)}
-                                </span>
-                              </>
-                            )}
+                      <AccordionItem value="current" className="relative">
+                        <div className="flex items-start gap-3">
+                          <div className="flex items-center h-[52px]">
+                            <Checkbox
+                              checked={selectedPromptVersions.includes('current')}
+                              onCheckedChange={(checked) => handlePromptVersionSelect('current', checked as boolean)}
+                              disabled={!selectedPromptVersions.includes('current') && selectedPromptVersions.length >= 2}
+                            />
                           </div>
-                        </AccordionTrigger>
+                          <AccordionTrigger className="hover:no-underline flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <FileText className="h-4 w-4 text-primary" />
+                              <span className="font-medium">Prompt - Current Version</span>
+                              {promptVersions.length > 0 && (
+                                <>
+                                  <Badge variant="outline" className="ml-2">
+                                    v{promptVersions[0]?.version_number || 1}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatDate(promptVersions[0].created_at)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </AccordionTrigger>
+                        </div>
                         <AccordionContent>
-                          <div className="border rounded-lg p-4 bg-muted/30 mt-2">
+                          <div className="border rounded-lg p-4 bg-muted/30 mt-2 ml-6">
                             <pre className="text-sm whitespace-pre-wrap font-mono">{agent.prompt}</pre>
                           </div>
                         </AccordionContent>
@@ -1456,20 +2013,29 @@ export default function AgentDetailPage() {
 
                       {/* Historical Versions */}
                       {promptVersions.slice(1).map((version) => (
-                        <AccordionItem key={version.id} value={version.id}>
-                          <AccordionTrigger className="hover:no-underline">
-                            <div className="flex items-center gap-2">
-                              <History className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-muted-foreground">
-                                Prompt - v{version.version_number}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {formatDate(version.created_at)}
-                              </span>
+                        <AccordionItem key={version.id} value={version.id} className="relative">
+                          <div className="flex items-start gap-3">
+                            <div className="flex items-center h-[52px]">
+                              <Checkbox
+                                checked={selectedPromptVersions.includes(version.id)}
+                                onCheckedChange={(checked) => handlePromptVersionSelect(version.id, checked as boolean)}
+                                disabled={!selectedPromptVersions.includes(version.id) && selectedPromptVersions.length >= 2}
+                              />
                             </div>
-                          </AccordionTrigger>
+                            <AccordionTrigger className="hover:no-underline flex-1">
+                              <div className="flex items-center gap-2">
+                                <History className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-muted-foreground">
+                                  Prompt - v{version.version_number}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDate(version.created_at)}
+                                </span>
+                              </div>
+                            </AccordionTrigger>
+                          </div>
                           <AccordionContent>
-                            <div className="border rounded-lg p-4 bg-muted/30 mt-2">
+                            <div className="border rounded-lg p-4 bg-muted/30 mt-2 ml-6">
                               <pre className="text-sm whitespace-pre-wrap font-mono">
                                 {version.prompt}
                               </pre>
@@ -1487,6 +2053,140 @@ export default function AgentDetailPage() {
                       No version history yet. Prompt versions will be tracked when changes are detected from the provider.
                     </p>
                   )}
+
+                  {/* Diff Comparison View */}
+                  {showPromptComparison && selectedPromptVersions.length === 2 && (() => {
+                    const version1 = getPromptByVersionId(selectedPromptVersions[0]);
+                    const version2 = getPromptByVersionId(selectedPromptVersions[1]);
+                    
+                    if (!version1 || !version2) return null;
+                    
+                    // Sort by version number to show older on left
+                    const [older, newer] = version1.version < version2.version 
+                      ? [version1, version2] 
+                      : [version2, version1];
+                    
+                    const diff = computeDiff(older.prompt, newer.prompt);
+                    
+                    const addedCount = diff.filter(l => l.type === 'added').length;
+                    const deletedCount = diff.filter(l => l.type === 'deleted').length;
+                    const modifiedCount = diff.filter(l => l.type === 'modified').length;
+                    
+                    return (
+                      <div className="mt-6 border rounded-lg overflow-hidden">
+                        <div className="bg-muted px-4 py-3 border-b flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <GitCompare className="h-4 w-4" />
+                            <span className="font-medium">Version Comparison</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-red-500/20 border border-red-500"></span>
+                              <span className="text-muted-foreground">{deletedCount} deleted</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-yellow-500/20 border border-yellow-500"></span>
+                              <span className="text-muted-foreground">{modifiedCount} modified</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-green-500/20 border border-green-500"></span>
+                              <span className="text-muted-foreground">{addedCount} added</span>
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowPromptComparison(false);
+                                setSelectedPromptVersions([]);
+                              }}
+                              className="h-7 w-7 p-0 ml-2"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {/* Header row with version badges */}
+                        <div className="grid grid-cols-2 divide-x border-b">
+                          <div className="bg-muted/50 px-4 py-2 text-sm font-medium flex items-center gap-2">
+                            <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30">
+                              v{older.version}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                              {older.date && formatDate(older.date)}
+                            </span>
+                          </div>
+                          <div className="bg-muted/50 px-4 py-2 text-sm font-medium flex items-center gap-2">
+                            <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                              v{newer.version}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                              {newer.date && formatDate(newer.date)}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Unified diff view - synchronized side by side */}
+                        <ScrollArea className="h-[600px]">
+                          <div className="font-mono text-xs">
+                            {diff.map((line, idx) => (
+                              <div key={idx} className="grid grid-cols-2 divide-x">
+                                {/* Left side (older) */}
+                                <div
+                                  className={`flex min-h-[28px] ${
+                                    line.type === 'deleted' 
+                                      ? 'bg-red-500/15' 
+                                      : line.type === 'modified'
+                                        ? 'bg-red-500/10'
+                                        : ''
+                                  }`}
+                                >
+                                  <span className="w-10 flex-shrink-0 text-right pr-2 text-muted-foreground py-1 select-none border-r bg-muted/30">
+                                    {line.oldLineNum || ''}
+                                  </span>
+                                  <span className="w-6 flex-shrink-0 text-center py-1 select-none">
+                                    {(line.type === 'deleted' || line.type === 'modified') && (
+                                      <span className="text-red-500 font-bold">−</span>
+                                    )}
+                                  </span>
+                                  <pre className={`flex-1 py-1 px-2 whitespace-pre-wrap break-all ${
+                                    line.type === 'deleted' || line.type === 'modified' ? 'text-red-600' : ''
+                                  }`}>
+                                    {line.oldContent ?? ''}
+                                  </pre>
+                                </div>
+                                
+                                {/* Right side (newer) */}
+                                <div
+                                  className={`flex min-h-[28px] ${
+                                    line.type === 'added' 
+                                      ? 'bg-green-500/15' 
+                                      : line.type === 'modified'
+                                        ? 'bg-green-500/10'
+                                        : ''
+                                  }`}
+                                >
+                                  <span className="w-10 flex-shrink-0 text-right pr-2 text-muted-foreground py-1 select-none border-r bg-muted/30">
+                                    {line.newLineNum || ''}
+                                  </span>
+                                  <span className="w-6 flex-shrink-0 text-center py-1 select-none">
+                                    {(line.type === 'added' || line.type === 'modified') && (
+                                      <span className="text-green-500 font-bold">+</span>
+                                    )}
+                                  </span>
+                                  <pre className={`flex-1 py-1 px-2 whitespace-pre-wrap break-all ${
+                                    line.type === 'added' || line.type === 'modified' ? 'text-green-600' : ''
+                                  }`}>
+                                    {line.newContent ?? ''}
+                                  </pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </>
@@ -1727,6 +2427,9 @@ export default function AgentDetailPage() {
                           <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
                             Priority
                           </th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -1743,10 +2446,12 @@ export default function AgentDetailPage() {
                           const rows: React.ReactNode[] = [];
                           categoryGroups.forEach((cases, category) => {
                             cases.forEach((tc, idx) => {
+                              const isEditing = editingTestCaseId === tc.id;
                               rows.push(
                                 <tr key={tc.id} className={`
                                   ${idx === 0 ? 'border-t-2 border-t-border' : ''} 
-                                  hover:bg-muted/30 transition-colors
+                                  ${isEditing ? 'bg-primary/5 ring-2 ring-primary/20 ring-inset' : 'hover:bg-muted/30'}
+                                  transition-colors
                                 `}>
                                   {idx === 0 && (
                                     <td
@@ -1764,26 +2469,113 @@ export default function AgentDetailPage() {
                                     </td>
                                   )}
                                   <td className="px-4 py-3">
-                                    <span className="text-sm font-medium text-foreground">{tc.name}</span>
+                                    {isEditing ? (
+                                      <Input
+                                        value={editTestCase.name}
+                                        onChange={(e) => setEditTestCase({ ...editTestCase, name: e.target.value })}
+                                        className="h-8 text-sm"
+                                        autoFocus
+                                      />
+                                    ) : (
+                                      <span className="text-sm font-medium text-foreground">{tc.name}</span>
+                                    )}
                                   </td>
                                   <td className="px-4 py-3">
-                                    <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
-                                      {tc.scenario}
-                                    </p>
-                                    {tc.expectedOutcome && (
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        <span className="font-medium">Expected: </span>
-                                        {tc.expectedOutcome}
-                                      </p>
+                                    {isEditing ? (
+                                      <div className="space-y-2">
+                                        <Input
+                                          value={editTestCase.scenario}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Scenario"
+                                        />
+                                        <Input
+                                          value={editTestCase.expectedOutcome}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Expected outcome"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                          {tc.scenario}
+                                        </p>
+                                        {tc.expectedOutcome && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            <span className="font-medium">Expected: </span>
+                                            {tc.expectedOutcome}
+                                          </p>
+                                        )}
+                                      </>
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-center">
-                                    <Badge
-                                      variant="secondary"
-                                      className={`${priorityColors[tc.priority]} text-xs font-medium`}
-                                    >
-                                      {tc.priority}
-                                    </Badge>
+                                    {isEditing ? (
+                                      <Select
+                                        value={editTestCase.priority}
+                                        onValueChange={(v) => setEditTestCase({ ...editTestCase, priority: v as "high" | "medium" | "low" })}
+                                      >
+                                        <SelectTrigger className="h-8 text-xs w-24">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="high">High</SelectItem>
+                                          <SelectItem value="medium">Medium</SelectItem>
+                                          <SelectItem value="low">Low</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <Badge
+                                        variant="secondary"
+                                        className={`${priorityColors[tc.priority]} text-xs font-medium`}
+                                      >
+                                        {tc.priority}
+                                      </Badge>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                      {isEditing ? (
+                                        <>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                            onClick={handleSaveEditTestCase}
+                                          >
+                                            <Check className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                            onClick={handleCancelEditTestCase}
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                            onClick={() => handleStartEditTestCase(tc)}
+                                          >
+                                            <Edit2 className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                                            onClick={() => handleDeleteTestCase(tc.id)}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -1798,6 +2590,23 @@ export default function AgentDetailPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Test Flow Tab - Full height */}
+        <TabsContent value="testflow" className="mt-0">
+          <TestFlowTab
+            agentId={agentId}
+            testCases={savedTestCases.map(tc => ({
+              id: tc.id,
+              name: tc.name,
+              scenario: tc.scenario,
+              category: tc.category || 'General',
+              expectedOutcome: tc.expectedOutcome || '',
+              priority: tc.priority,
+            }))}
+            onSave={handleSaveWorkflow}
+            onRunWorkflow={handleRunWorkflow}
+          />
         </TabsContent>
 
         {/* Previous Test Runs Tab */}
@@ -1924,7 +2733,337 @@ export default function AgentDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Knowledge Base Tab */}
+        <TabsContent value="knowledgebase" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="h-5 w-5" />
+                    Knowledge Base
+                  </CardTitle>
+                  <CardDescription>
+                    Documents and data sources connected to this agent
+                  </CardDescription>
+                </div>
+                <Button variant="outline" onClick={fetchKnowledgeBase} disabled={isLoadingKnowledgeBase}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingKnowledgeBase ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingKnowledgeBase ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : knowledgeBase.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Knowledge Base Found</h3>
+                  <p className="text-muted-foreground max-w-md">
+                    This agent doesn't have any connected knowledge base or documents. 
+                    You can add knowledge base items through your voice agent provider's dashboard.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {knowledgeBase.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                          {item.type === 'document' && <FileText className="h-5 w-5 text-primary" />}
+                          {item.type === 'vector_store' && <Database className="h-5 w-5 text-primary" />}
+                          {item.type === 'retrieval_tool' && <FileQuestion className="h-5 w-5 text-primary" />}
+                          {!['document', 'vector_store', 'retrieval_tool'].includes(item.type) && (
+                            <BookOpen className="h-5 w-5 text-primary" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium">{item.name}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {item.type}
+                            </Badge>
+                            {item.description && (
+                              <span className="truncate max-w-xs">{item.description}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {item.status && (
+                          <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>
+                            {item.status}
+                          </Badge>
+                        )}
+                        {item.url && (
+                          <Button variant="ghost" size="icon" asChild>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Dynamic Variables Tab */}
+        <TabsContent value="variables" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Variable className="h-5 w-5" />
+                    Dynamic Variables
+                  </CardTitle>
+                  <CardDescription>
+                    Variables extracted from the agent's prompt. Set test values for testing.
+                  </CardDescription>
+                </div>
+                <Button variant="outline" onClick={fetchDynamicVariables} disabled={isLoadingVariables}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingVariables ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingVariables ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : dynamicVariables.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Variable className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Dynamic Variables Found</h3>
+                  <p className="text-muted-foreground max-w-md">
+                    No dynamic variables (like {"{{variable}}"} or {"{variable}"}) were detected in the agent's prompt.
+                    Dynamic variables allow you to personalize conversations with caller-specific data.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Variable Name
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Pattern
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Source
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Test Value
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {dynamicVariables.map((variable, index) => (
+                          <tr key={index} className="hover:bg-muted/30">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <code className="bg-primary/10 text-primary px-2 py-1 rounded text-sm font-mono">
+                                  {variable.name}
+                                </code>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                                {variable.pattern}
+                              </code>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="outline" className="text-xs">
+                                {variable.source}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Input
+                                value={variable.testValue || ''}
+                                onChange={(e) => {
+                                  const newVars = [...dynamicVariables];
+                                  newVars[index] = { ...newVars[index], testValue: e.target.value };
+                                  setDynamicVariables(newVars);
+                                }}
+                                placeholder={variable.defaultValue || `Enter test value for ${variable.name}`}
+                                className="h-8 text-sm max-w-xs"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {dynamicVariables.length > 0 && (
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => {
+                          // Save variables to localStorage for use in test runs
+                          const varsToSave = dynamicVariables.reduce((acc, v) => {
+                            if (v.testValue) acc[v.name] = v.testValue;
+                            return acc;
+                          }, {} as Record<string, string>);
+                          localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
+                          alert('Test values saved! They will be used when running tests.');
+                        }}
+                      >
+                        <Check className="mr-2 h-4 w-4" />
+                        Save Test Values
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Generated Test Cases Selection Dialog - Full Screen */}
+      <Dialog open={showGeneratedTestCasesDialog} onOpenChange={setShowGeneratedTestCasesDialog}>
+        <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !m-0 flex flex-col p-0 [&>button]:hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b bg-background">
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Generated Test Cases
+              </DialogTitle>
+              <DialogDescription className="mt-1">
+                Select the test cases you want to add. {generatedTestCases.length} test case{generatedTestCases.length !== 1 ? 's' : ''} generated.
+              </DialogDescription>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="select-all-generated"
+                  checked={selectedGeneratedTestCases.size === generatedTestCases.length && generatedTestCases.length > 0}
+                  onCheckedChange={(checked) => handleSelectAllGeneratedTestCases(checked as boolean)}
+                />
+                <Label htmlFor="select-all-generated" className="text-sm font-medium cursor-pointer">
+                  Select All ({selectedGeneratedTestCases.size} of {generatedTestCases.length} selected)
+                </Label>
+              </div>
+              <Badge variant="outline" className="text-sm px-3 py-1">
+                {selectedGeneratedTestCases.size} selected
+              </Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => {
+                  setShowGeneratedTestCasesDialog(false);
+                  setGeneratedTestCases([]);
+                  setSelectedGeneratedTestCases(new Set());
+                }}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+          
+          {/* Scrollable Test Cases Grid */}
+          <div className="flex-1 overflow-auto px-6 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {generatedTestCases.map((tc) => (
+                <div
+                  key={tc.id}
+                  onClick={() => handleGeneratedTestCaseSelection(tc.id, !selectedGeneratedTestCases.has(tc.id))}
+                  className={`border rounded-lg p-4 transition-all cursor-pointer hover:shadow-md ${
+                    selectedGeneratedTestCases.has(tc.id)
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-border hover:border-muted-foreground/50'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id={`tc-${tc.id}`}
+                      checked={selectedGeneratedTestCases.has(tc.id)}
+                      onCheckedChange={(checked) => handleGeneratedTestCaseSelection(tc.id, checked as boolean)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        <Label htmlFor={`tc-${tc.id}`} className="font-medium cursor-pointer text-sm line-clamp-1">
+                          {tc.name}
+                        </Label>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        <Badge 
+                          variant="secondary" 
+                          className={`text-xs ${categoryColors[tc.category] || 'bg-gray-100 text-gray-800'}`}
+                        >
+                          {tc.category}
+                        </Badge>
+                        <Badge 
+                          variant="secondary" 
+                          className={`text-xs ${priorityColors[tc.priority] || ''}`}
+                        >
+                          {tc.priority}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{tc.scenario}</p>
+                      {tc.expectedOutcome && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          <span className="font-medium">Expected:</span> {tc.expectedOutcome}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-background">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowGeneratedTestCasesDialog(false);
+                setGeneratedTestCases([]);
+                setSelectedGeneratedTestCases(new Set());
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddSelectedTestCases}
+              disabled={selectedGeneratedTestCases.size === 0 || isAddingSelectedTestCases}
+              className="min-w-[180px]"
+            >
+              {isAddingSelectedTestCases ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add {selectedGeneratedTestCases.size} Test Case{selectedGeneratedTestCases.size !== 1 ? 's' : ''}
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

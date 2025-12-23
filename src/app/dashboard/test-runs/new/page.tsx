@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -21,13 +21,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
 
@@ -46,6 +47,7 @@ interface TestCase {
   name: string;
   scenario: string;
   category: string;
+  keyTopic?: string;
   expectedOutcome: string;
   priority: "high" | "medium" | "low";
 }
@@ -79,6 +81,8 @@ const categoryColors: Record<string, string> = {
 export default function NewTestRunPage() {
   const { getToken } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedAgentId = searchParams.get("agent_id");
 
   // Selection state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -98,6 +102,9 @@ export default function NewTestRunPage() {
 
   // Batch planning modal state
   const [showBatchModal, setShowBatchModal] = useState(false);
+  
+  // Prompt fullscreen modal state
+  const [showPromptModal, setShowPromptModal] = useState(false);
   const [callBatches, setCallBatches] = useState<CallBatch[]>([]);
   const [draggedTestCase, setDraggedTestCase] = useState<{ testCase: TestCase; fromBatchId: string } | null>(null);
   const [dragOverBatchId, setDragOverBatchId] = useState<string | null>(null);
@@ -113,6 +120,11 @@ export default function NewTestRunPage() {
     expectedOutcome: "",
     priority: "medium" as "high" | "medium" | "low",
   });
+
+  // Test run configuration
+  const [batchingEnabled, setBatchingEnabled] = useState(true);
+  const [concurrencyEnabled, setConcurrencyEnabled] = useState(false);
+  const [concurrencyCount, setConcurrencyCount] = useState(3);
 
   // Get unique categories from existing test cases
   const existingCategories = [...new Set(testCases.map(tc => tc.category))].filter(Boolean);
@@ -141,6 +153,11 @@ export default function NewTestRunPage() {
         if (response.ok) {
           const data = await response.json();
           setAgents(data.agents || []);
+          
+          // Pre-select agent if agent_id is in URL
+          if (preselectedAgentId && data.agents?.some((a: Agent) => a.id === preselectedAgentId)) {
+            setSelectedAgentId(preselectedAgentId);
+          }
         }
       } catch (error) {
         console.error("Error fetching agents:", error);
@@ -151,7 +168,7 @@ export default function NewTestRunPage() {
     };
 
     loadAgents();
-  }, [getToken]);
+  }, [getToken, preselectedAgentId]);
 
   // Fetch agent details and test cases when agent is selected
   const fetchAgentDetails = useCallback(async (agentId: string) => {
@@ -186,6 +203,7 @@ export default function NewTestRunPage() {
           name: tc.name,
           scenario: tc.scenario,
           category: tc.category || 'General',
+          keyTopic: tc.key_topic || tc.category || 'General',
           expectedOutcome: tc.expected_behavior || '',
           priority: tc.priority || 'medium',
         }));
@@ -247,6 +265,7 @@ export default function NewTestRunPage() {
       name: newTestCase.name,
       scenario: newTestCase.scenario,
       category: finalCategory,
+      keyTopic: finalCategory, // Use category as keyTopic for manually added test cases
       expectedOutcome: newTestCase.expectedOutcome,
       priority: newTestCase.priority,
     };
@@ -330,26 +349,36 @@ export default function NewTestRunPage() {
     });
   };
 
-  // Create batches from selected test cases - group by category
+  // Create batches from selected test cases - group by category or individual
   const createBatches = (): CallBatch[] => {
     const casesToBatch = selectedTestCases;
     
-    // Group test cases by category - each category = ONE call
-    const categoryGroups = new Map<string, TestCase[]>();
+    if (!batchingEnabled) {
+      // Each test case is its own batch (individual calls)
+      return casesToBatch.map((tc, index) => ({
+        id: `batch-${index + 1}`,
+        name: tc.keyTopic || tc.category || "Individual",
+        testCases: [tc],
+        estimatedDuration: `~30 sec (1 scenario)`,
+      }));
+    }
+    
+    // Group test cases by keyTopic (more accurate than category) - each topic = ONE call
+    const topicGroups = new Map<string, TestCase[]>();
     casesToBatch.forEach((tc) => {
-      const category = tc.category || "General";
-      const group = categoryGroups.get(category) || [];
+      const topic = tc.keyTopic || tc.category || "General";
+      const group = topicGroups.get(topic) || [];
       group.push(tc);
-      categoryGroups.set(category, group);
+      topicGroups.set(topic, group);
     });
 
     const batches: CallBatch[] = [];
-    categoryGroups.forEach((cases, category) => {
+    topicGroups.forEach((cases, topic) => {
       const totalTurns = cases.length * 3;
       const estimatedMinutes = Math.ceil(totalTurns * 10 / 60);
       batches.push({
         id: `batch-${batches.length + 1}`,
-        name: category,
+        name: topic,
         testCases: cases,
         estimatedDuration: `~${estimatedMinutes} min (${cases.length} scenarios)`,
       });
@@ -432,7 +461,9 @@ export default function NewTestRunPage() {
           integrationId: selectedAgent.integration_id,
           agentName: selectedAgent.name,
           batches: formattedBatches,
-          enableBatching: true,
+          enableBatching: batchingEnabled,
+          enableConcurrency: concurrencyEnabled,
+          concurrencyCount: concurrencyEnabled ? concurrencyCount : 1,
         }),
       });
 
@@ -586,9 +617,18 @@ export default function NewTestRunPage() {
               </AccordionTrigger>
               <AccordionContent className="px-6 pb-4">
                 {selectedAgent.prompt ? (
-                  <pre className="text-sm whitespace-pre-wrap bg-muted p-4 rounded-lg max-h-64 overflow-auto">
-                    {selectedAgent.prompt}
-                  </pre>
+                  <div className="relative rounded-lg overflow-hidden">
+                    <pre className="text-sm whitespace-pre-wrap bg-muted p-4 rounded-lg max-h-64 overflow-auto">
+                      {selectedAgent.prompt}
+                    </pre>
+                    <button
+                      className="absolute top-3 right-6 p-1.5 rounded-md bg-background/90 hover:bg-background border shadow transition-colors z-10"
+                      onClick={() => setShowPromptModal(true)}
+                      title="Expand to fullscreen"
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : (
                   <p className="text-muted-foreground text-sm">No prompt configured</p>
                 )}
@@ -827,9 +867,6 @@ export default function NewTestRunPage() {
                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
                           Priority
                         </th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">
-                          Actions
-                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -845,13 +882,12 @@ export default function NewTestRunPage() {
                         const rows: React.ReactNode[] = [];
                         categoryGroups.forEach((cases, category) => {
                           cases.forEach((tc, idx) => {
-                            const isEditing = editingTestCase === tc.id;
                             const isSelected = selectedTestCaseIds.has(tc.id);
                             
                             rows.push(
                               <tr key={tc.id} className={`
                                 ${idx === 0 ? 'border-t-2 border-t-border' : ''} 
-                                ${isEditing ? 'bg-primary/5 ring-2 ring-primary/20 ring-inset' : isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'}
+                                ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'}
                                 transition-colors
                               `}>
                                 {idx === 0 && (
@@ -904,97 +940,21 @@ export default function NewTestRunPage() {
                                       onChange={() => toggleTestCase(tc.id)}
                                       className="rounded"
                                     />
-                                    {isEditing ? (
-                                      <Input
-                                        value={newTestCase.name}
-                                        onChange={(e) => setNewTestCase({ ...newTestCase, name: e.target.value })}
-                                        className="h-8 text-sm"
-                                        autoFocus
-                                      />
-                                    ) : (
-                                      <span className="text-sm font-medium text-foreground">{tc.name}</span>
-                                    )}
+                                    <span className="text-sm font-medium text-foreground">{tc.name}</span>
                                   </div>
                                 </td>
                                 <td className="px-4 py-3">
-                                  {isEditing ? (
-                                    <Input
-                                      value={newTestCase.scenario}
-                                      onChange={(e) => setNewTestCase({ ...newTestCase, scenario: e.target.value })}
-                                      className="h-8 text-sm"
-                                    />
-                                  ) : (
-                                    <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
-                                      {tc.scenario}
-                                    </p>
-                                  )}
+                                  <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                    {tc.scenario}
+                                  </p>
                                 </td>
                                 <td className="px-4 py-3 text-center">
-                                  {isEditing ? (
-                                    <Select
-                                      value={newTestCase.priority}
-                                      onValueChange={(v) => setNewTestCase({ ...newTestCase, priority: v as "high" | "medium" | "low" })}
-                                    >
-                                      <SelectTrigger className="h-8 text-xs w-24">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="high">High</SelectItem>
-                                        <SelectItem value="medium">Medium</SelectItem>
-                                        <SelectItem value="low">Low</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  ) : (
-                                    <Badge
-                                      variant="secondary"
-                                      className={`${priorityColors[tc.priority]} text-xs font-medium`}
-                                    >
-                                      {tc.priority}
-                                    </Badge>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center justify-center gap-1">
-                                    {isEditing ? (
-                                      <>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                          onClick={handleSaveEdit}
-                                        >
-                                          <Check className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                          onClick={handleCancelEdit}
-                                        >
-                                          <X className="h-4 w-4" />
-                                        </Button>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                          onClick={() => handleEditTestCase(tc)}
-                                        >
-                                          <Edit2 className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 text-muted-foreground hover:text-red-500"
-                                          onClick={() => handleDeleteTestCase(tc.id)}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
+                                  <Badge
+                                    variant="secondary"
+                                    className={`${priorityColors[tc.priority]} text-xs font-medium`}
+                                  >
+                                    {tc.priority}
+                                  </Badge>
                                 </td>
                               </tr>
                             );
@@ -1014,18 +974,59 @@ export default function NewTestRunPage() {
             <div className="border rounded-lg p-6 bg-muted/30 space-y-4">
               <h3 className="font-semibold">Test Run Configuration</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Call Batching Info */}
-                <div className="flex items-center justify-between space-x-4 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
-                  <div className="space-y-0.5">
-                    <Label className="text-sm font-medium">
-                      Call Batching Enabled
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Test cases grouped by category - each category = 1 voice call
-                    </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Call Batching Toggle */}
+                <div className="p-4 border rounded-lg bg-background space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Call Batching</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {batchingEnabled 
+                          ? "Group by category - each category = 1 call" 
+                          : "Each test case = 1 separate call"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={batchingEnabled}
+                      onCheckedChange={setBatchingEnabled}
+                    />
                   </div>
-                  <Badge className="bg-green-100 text-green-800">Active</Badge>
+                </div>
+
+                {/* Concurrency Toggle */}
+                <div className="p-4 border rounded-lg bg-background space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Concurrent Calls</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {concurrencyEnabled 
+                          ? `Run ${concurrencyCount} calls in parallel` 
+                          : "Run calls sequentially"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={concurrencyEnabled}
+                      onCheckedChange={setConcurrencyEnabled}
+                    />
+                  </div>
+                  {concurrencyEnabled && (
+                    <div className="flex items-center gap-2 pt-2">
+                      <Label className="text-xs text-muted-foreground">Parallel calls:</Label>
+                      <Select
+                        value={String(concurrencyCount)}
+                        onValueChange={(v) => setConcurrencyCount(Number(v))}
+                      >
+                        <SelectTrigger className="w-20 h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[2, 3, 4, 5, 6, 8, 10].map((n) => (
+                            <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Test Summary */}
@@ -1034,9 +1035,23 @@ export default function NewTestRunPage() {
                   <div className="mt-2 space-y-1 text-sm">
                     <p><span className="text-muted-foreground">Selected Test Cases:</span> {selectedTestCaseIds.size}</p>
                     <p><span className="text-muted-foreground">Categories:</span> {new Set(selectedTestCases.map(tc => tc.category)).size}</p>
-                    <p className="text-green-600 font-medium">
-                      <span className="text-muted-foreground">Estimated Calls:</span> ~{new Set(selectedTestCases.map(tc => tc.category)).size} calls (batched)
+                    <p className={`font-medium ${batchingEnabled ? 'text-green-600' : 'text-blue-600'}`}>
+                      <span className="text-muted-foreground">Estimated Calls:</span>{' '}
+                      {batchingEnabled 
+                        ? `~${new Set(selectedTestCases.map(tc => tc.category)).size} calls (batched)`
+                        : `${selectedTestCaseIds.size} calls (individual)`}
                     </p>
+                    {concurrencyEnabled && (
+                      <p className="text-purple-600 font-medium">
+                        <span className="text-muted-foreground">Execution:</span>{' '}
+                        {concurrencyCount} parallel • ~{Math.ceil(
+                          (batchingEnabled 
+                            ? new Set(selectedTestCases.map(tc => tc.category)).size 
+                            : selectedTestCaseIds.size
+                          ) / concurrencyCount
+                        )} rounds
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1064,13 +1079,21 @@ export default function NewTestRunPage() {
         <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] p-6" style={{ maxWidth: '95vw', width: '95vw' }}>
           <DialogHeader className="pb-4">
             <DialogTitle className="text-xl font-bold">
-              Call Batch Planning
+              {batchingEnabled ? "Call Batch Planning" : "Individual Call Planning"}
             </DialogTitle>
             <DialogDescription>
-              Each category = 1 voice call. All test cases in a category will be tested in a single conversation.
-              <span className="block mt-1 text-primary font-medium">
-                💡 Drag test cases between categories to reorganize batches.
-              </span>
+              {batchingEnabled ? (
+                <>
+                  Each category = 1 voice call. All test cases in a category will be tested in a single conversation.
+                  <span className="block mt-1 text-primary font-medium">
+                    Drag test cases between categories to reorganize batches.
+                  </span>
+                </>
+              ) : (
+                <>
+                  Each test case = 1 separate voice call. Tests will run {concurrencyEnabled ? `with ${concurrencyCount} parallel calls` : "sequentially"}.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -1085,6 +1108,17 @@ export default function NewTestRunPage() {
                 <p className="text-xs text-muted-foreground">Voice Calls</p>
               </div>
             </div>
+            {concurrencyEnabled && (
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                  <Layers className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{concurrencyCount}</p>
+                  <p className="text-xs text-muted-foreground">Parallel</p>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
                 <Layers className="h-5 w-5 text-green-600" />
@@ -1222,6 +1256,26 @@ export default function NewTestRunPage() {
               )}
               Start {callBatches.length} Batched Calls
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fullscreen Prompt Modal */}
+      <Dialog open={showPromptModal} onOpenChange={setShowPromptModal}>
+        <DialogContent className="!max-w-[95vw] !w-[95vw] !max-h-[95vh] !h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Agent Prompt - {selectedAgent?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Full prompt configuration for this agent
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto min-h-0">
+            <pre className="text-sm whitespace-pre-wrap bg-muted p-6 rounded-lg min-h-full">
+              {selectedAgent?.prompt || "No prompt configured"}
+            </pre>
           </div>
         </DialogContent>
       </Dialog>

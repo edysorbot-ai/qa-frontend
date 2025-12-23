@@ -19,9 +19,20 @@ import {
   XCircle,
   Clock,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface TestRun {
   id: string;
@@ -55,6 +66,9 @@ export default function TestRunsPage() {
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [runToDelete, setRunToDelete] = useState<TestRun | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchTestRuns = useCallback(async () => {
     try {
@@ -92,6 +106,44 @@ export default function TestRunsPage() {
       return () => clearInterval(interval);
     }
   }, [testRuns, fetchTestRuns]);
+
+  const handleDeleteClick = (e: React.MouseEvent, run: TestRun) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRunToDelete(run);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!runToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${api.baseUrl}/api/test-runs/${runToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setTestRuns(testRuns.filter(r => r.id !== runToDelete.id));
+        setDeleteDialogOpen(false);
+        setRunToDelete(null);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to delete test run");
+      }
+    } catch (err) {
+      console.error("Error deleting test run:", err);
+      setError("Failed to delete test run");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -152,10 +204,10 @@ export default function TestRunsPage() {
       ) : (
         <div className="space-y-4">
           {testRuns.map((run) => (
-            <Link key={run.id} href={`/dashboard/test-runs/${run.id}`}>
-              <Card className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
+            <Card key={run.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <Link href={`/dashboard/test-runs/${run.id}`} className="flex-1 cursor-pointer">
                     <div className="space-y-1">
                       <div className="flex items-center gap-3">
                         <h3 className="font-semibold text-lg">{run.name}</h3>
@@ -170,8 +222,10 @@ export default function TestRunsPage() {
                         {new Date(run.createdAt).toLocaleString()}
                       </p>
                     </div>
+                  </Link>
 
-                    <div className="flex items-center gap-8">
+                  <div className="flex items-center gap-8">
+                    <Link href={`/dashboard/test-runs/${run.id}`} className="flex items-center gap-8 cursor-pointer">
                       <div className="text-center">
                         <div className="text-2xl font-bold">
                           {run.stats.total}
@@ -209,14 +263,53 @@ export default function TestRunsPage() {
                           {run.stats.completed} / {run.stats.total} completed
                         </div>
                       </div>
-                    </div>
+                    </Link>
+                    
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => handleDeleteClick(e, run)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                </CardContent>
-              </Card>
-            </Link>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Test Run?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{runToDelete?.name}&quot;? This action cannot be undone.
+              All test results and recordings associated with this run will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

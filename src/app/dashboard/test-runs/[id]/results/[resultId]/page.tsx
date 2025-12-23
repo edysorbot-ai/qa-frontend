@@ -23,9 +23,11 @@ import {
   Mic,
   Bot,
   User,
+  BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ConversationTurn {
   role: "user" | "agent";
@@ -356,7 +358,7 @@ export default function TestResultDetailPage() {
               {result.actualResponse && (
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Actual Response</label>
-                  <p className="mt-1 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="mt-1 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800 whitespace-pre-wrap">
                     {result.actualResponse}
                   </p>
                 </div>
@@ -364,6 +366,149 @@ export default function TestResultDetailPage() {
             </div>
           </div>
 
+          {/* Prompt Improvement Suggestions - Only show for failed tests */}
+          {result.status === 'failed' && (
+            <div className="bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-200 dark:border-orange-800 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-orange-900 dark:text-orange-100">
+                <AlertTriangle className="h-5 w-5" />
+                Prompt Improvement Suggestions
+              </h2>
+              
+              <div className="space-y-4">
+                {/* Analysis of what went wrong */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">What Went Wrong</h3>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    The agent's response didn't match the expected outcome. Based on the test case expectations, the agent should have {result.expectedResponse}
+                  </p>
+                </div>
+
+                {/* Prompt modifications */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3">Recommended Prompt Additions</h3>
+                  <div className="space-y-3">
+                    {/* Determine prompt suggestions based on category */}
+                    {result.category === 'Off-topic Handling' && (
+                      <>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: 'I appreciate your question, but I'm specifically designed to help with [your purpose]. Let's get you back on track with [relevant topic].'&quot;
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Conversation Guidelines section</p>
+                        </div>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;Never engage with off-topic requests. Always acknowledge the user's question briefly, then redirect to relevant topics within your scope.&quot;
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Boundaries section</p>
+                        </div>
+                      </>
+                    )}
+                    
+                    {result.category === 'Budget Inquiry' && (
+                      <>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is '$5000', maintain the dollar sign and specific amount. Don't generalize or estimate unless specifically asked to do so.&quot;
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Data Accuracy section</p>
+                        </div>
+                      </>
+                    )}
+
+                    {result.category === 'User Requests Callback' && (
+                      <>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: 'I understand you'd like a callback. Let me collect your preferred contact details and time.'&quot;
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Call Handling section</p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Generic fallback for other categories */}
+                    {!['Off-topic Handling', 'Budget Inquiry', 'User Requests Callback'].includes(result.category) && (
+                      <>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;For {result.category} scenarios: Ensure you {result.expectedResponse.toLowerCase()}. Always prioritize accuracy and completeness in your responses.&quot;
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → {result.category} section</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick action guide */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-green-600 dark:text-green-400 mb-2">Quick Fix Guide</h3>
+                  <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <li>Go to <strong>Agent Configuration</strong> page</li>
+                    <li>Locate the <strong>System Prompt</strong> or <strong>Instructions</strong> section</li>
+                    <li>Copy the recommended prompt additions above</li>
+                    <li>Paste them into the appropriate section mentioned</li>
+                    <li>Save and re-run this test to verify the fix</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column - Test Cases in This Call */}
+        <div className="space-y-6">
+          {/* Test Status Card */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+            <h2 className="text-lg font-semibold mb-4">Test Result</h2>
+            <div className="flex items-center justify-between mb-4">
+              <Badge className={statusColors[result.status]} variant="outline">
+                {result.status === 'passed' ? <CheckCircle2 className="h-4 w-4 mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
+                {result.status.toUpperCase()}
+              </Badge>
+              <span className="text-sm text-muted-foreground">{result.category}</span>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Duration</span>
+                <span className="font-medium">{result.durationFormatted}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Latency</span>
+                <span className="font-medium">{result.latencyMs}ms</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {result.errorMessage && (
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 p-6">
+              <h2 className="text-lg font-semibold text-red-600 mb-2 flex items-center gap-2">
+                <XCircle className="h-5 w-5" />
+                Error
+              </h2>
+              <p className="text-sm text-red-600">{result.errorMessage}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs for Transcript and Analytics */}
+      <Tabs defaultValue="transcript" className="mt-6">
+        <TabsList>
+          <TabsTrigger value="transcript" className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            Transcript & Recording
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Call Analytics & Metrics
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Transcript Tab */}
+        <TabsContent value="transcript" className="mt-6 space-y-6">
           {/* Call Recording */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -438,7 +583,7 @@ export default function TestResultDetailPage() {
             </div>
             
             {result.conversationTurns && result.conversationTurns.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[600px] overflow-y-auto">
                 {result.conversationTurns.map((turn, index) => (
                   <div
                     key={index}
@@ -524,212 +669,180 @@ export default function TestResultDetailPage() {
               </div>
             )}
           </div>
-        </div>
+        </TabsContent>
 
-        {/* Right Column - Metrics */}
-        <div className="space-y-6">
-          {/* Overall Score */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">Overall Score</h2>
-            <div className="flex justify-center relative">
-              <CircularProgress value={result.overallScore} label="Overall" size={140} />
-            </div>
-            <div className="mt-4 text-center">
-              <p className={`text-sm font-medium ${
-                result.overallScore >= 80 ? 'text-green-600' :
-                result.overallScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-              }`}>
-                {result.overallScore >= 80 ? 'Excellent' :
-                 result.overallScore >= 60 ? 'Good' :
-                 result.overallScore >= 40 ? 'Needs Improvement' : 'Poor'}
-              </p>
-            </div>
-          </div>
-
-          {/* Core Metrics */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">Core Metrics</h2>
-            <div className="space-y-4">
-              <MetricBar label="Accuracy" value={result.coreMetrics.accuracy} />
-              <MetricBar label="Relevance" value={result.coreMetrics.relevance} />
-              <MetricBar label="Coherence" value={result.coreMetrics.coherence} />
-              <MetricBar label="Completeness" value={result.coreMetrics.completeness} />
-            </div>
-          </div>
-
-          {/* Advanced Metrics */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">Advanced Metrics</h2>
-            <div className="space-y-3">
-              <MetricBar label="No Hallucination" value={result.advancedMetrics.noHallucination} />
-              <MetricBar label="Response Speed" value={result.advancedMetrics.responseSpeed} />
-              <MetricBar label="Info Accuracy" value={result.advancedMetrics.infoAccuracy} />
-              <MetricBar label="Protocol" value={result.advancedMetrics.protocol} />
-              <MetricBar label="Resolution" value={result.advancedMetrics.resolution} />
-              <MetricBar label="Voice Quality" value={result.advancedMetrics.voiceQuality} />
-              <MetricBar label="Tone" value={result.advancedMetrics.tone} />
-              <MetricBar label="Empathy" value={result.advancedMetrics.empathy} />
-            </div>
-          </div>
-
-          {/* AI Evaluation Summary */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">AI Evaluation Summary</h2>
-            
-            {result.analysis.summary && (
-              <p className="text-sm text-muted-foreground mb-4">
-                {result.analysis.summary}
-              </p>
-            )}
-            
-            {result.analysis.strengths && result.analysis.strengths.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-sm font-medium text-green-600 flex items-center gap-2 mb-2">
-                  <ThumbsUp className="h-4 w-4" />
-                  Strengths
-                </h3>
-                <ul className="space-y-1">
-                  {result.analysis.strengths.map((strength, i) => (
-                    <li key={i} className="text-sm flex items-start gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                      <span>{strength}</span>
-                    </li>
-                  ))}
-                </ul>
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Overall Score */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4">Overall Score</h2>
+              <div className="flex justify-center relative">
+                <CircularProgress value={result.overallScore} label="Overall" size={140} />
               </div>
-            )}
-            
-            {result.analysis.issues && result.analysis.issues.length > 0 && (
-              <div>
-                <h3 className="text-sm font-medium text-red-600 flex items-center gap-2 mb-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  Issues ({result.analysis.issues.length})
-                </h3>
-                <div className="space-y-3">
-                  {result.analysis.issues.map((issue, i) => {
-                    // Handle both string and object formats
-                    if (typeof issue === 'string') {
-                      return (
-                        <div key={i} className="flex items-start gap-2 text-sm">
-                          <XCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-                          <span>{issue}</span>
-                        </div>
-                      );
-                    }
-                    
-                    // Object format with detailed issue info
-                    const issueObj = issue as EvaluationIssue;
-                    return (
-                      <div key={i} className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-200 dark:border-red-800">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Badge variant={
-                            issueObj.severity === 'critical' ? 'destructive' : 
-                            issueObj.severity === 'warning' ? 'secondary' : 'outline'
-                          } className="text-xs">
-                            {issueObj.severity?.toUpperCase() || 'ISSUE'}
-                          </Badge>
-                          {issueObj.category && (
-                            <span className="text-xs text-muted-foreground">{issueObj.category}</span>
-                          )}
-                          {issueObj.turn !== undefined && (
-                            <span className="text-xs text-muted-foreground">Turn #{issueObj.turn}</span>
-                          )}
-                        </div>
-                        <p className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">
-                          {issueObj.problem}
-                        </p>
-                        {issueObj.agentSaid && (
-                          <div className="text-xs text-muted-foreground mt-2">
-                            <span className="font-medium">Agent said:</span> &quot;{issueObj.agentSaid}&quot;
-                          </div>
-                        )}
-                        {issueObj.shouldHaveSaid && (
-                          <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-                            <span className="font-medium">Should have said:</span> &quot;{issueObj.shouldHaveSaid}&quot;
-                          </div>
-                        )}
-                        {issueObj.impact && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            <span className="font-medium">Impact:</span> {issueObj.impact}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="mt-4 text-center">
+                <p className={`text-sm font-medium ${
+                  result.overallScore >= 80 ? 'text-green-600' :
+                  result.overallScore >= 60 ? 'text-yellow-600' : 'text-red-600'
+                }`}>
+                  {result.overallScore >= 80 ? 'Excellent' :
+                   result.overallScore >= 60 ? 'Good' :
+                   result.overallScore >= 40 ? 'Needs Improvement' : 'Poor'}
+                </p>
               </div>
-            )}
-            
-            {!result.analysis.summary && 
-             (!result.analysis.strengths || result.analysis.strengths.length === 0) && 
-             (!result.analysis.issues || result.analysis.issues.length === 0) && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No AI evaluation available
-              </p>
-            )}
-          </div>
+            </div>
 
-          {/* Test Details */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">Test Details</h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration</span>
-                <span className="font-medium">{result.durationFormatted}</span>
+            {/* Core Metrics */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4">Core Metrics</h2>
+              <div className="space-y-4">
+                <MetricBar label="Accuracy" value={result.coreMetrics.accuracy} />
+                <MetricBar label="Relevance" value={result.coreMetrics.relevance} />
+                <MetricBar label="Coherence" value={result.coreMetrics.coherence} />
+                <MetricBar label="Completeness" value={result.coreMetrics.completeness} />
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Latency</span>
-                <span className="font-medium">{result.latencyMs}ms</span>
+            </div>
+
+            {/* Advanced Metrics */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4">Advanced Metrics</h2>
+              <div className="space-y-3">
+                <MetricBar label="No Hallucination" value={result.advancedMetrics.noHallucination} />
+                <MetricBar label="Response Speed" value={result.advancedMetrics.responseSpeed} />
+                <MetricBar label="Info Accuracy" value={result.advancedMetrics.infoAccuracy} />
+                <MetricBar label="Protocol" value={result.advancedMetrics.protocol} />
               </div>
-              {result.detectedIntent && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Detected Intent</span>
-                  <span className="font-medium">{result.detectedIntent}</span>
-                </div>
+            </div>
+
+            {/* Voice & Tone Metrics */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4">Voice & Tone</h2>
+              <div className="space-y-3">
+                <MetricBar label="Resolution" value={result.advancedMetrics.resolution} />
+                <MetricBar label="Voice Quality" value={result.advancedMetrics.voiceQuality} />
+                <MetricBar label="Tone" value={result.advancedMetrics.tone} />
+                <MetricBar label="Empathy" value={result.advancedMetrics.empathy} />
+              </div>
+            </div>
+
+            {/* AI Evaluation Summary */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6 md:col-span-2">
+              <h2 className="text-lg font-semibold mb-4">AI Evaluation Summary</h2>
+              
+              {result.analysis.summary && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  {result.analysis.summary}
+                </p>
               )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Intent Match</span>
-                <Badge variant={result.intentMatch ? "default" : "destructive"}>
-                  {result.intentMatch ? "Yes" : "No"}
-                </Badge>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {result.analysis.strengths && result.analysis.strengths.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-green-600 flex items-center gap-2 mb-2">
+                      <ThumbsUp className="h-4 w-4" />
+                      Strengths
+                    </h3>
+                    <ul className="space-y-1">
+                      {result.analysis.strengths.map((strength, i) => (
+                        <li key={i} className="text-sm flex items-start gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <span>{strength}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {result.analysis.issues && result.analysis.issues.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-red-600 flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Issues ({result.analysis.issues.length})
+                    </h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {result.analysis.issues.map((issue, i) => {
+                        if (typeof issue === 'string') {
+                          return (
+                            <div key={i} className="flex items-start gap-2 text-sm">
+                              <XCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                              <span>{issue}</span>
+                            </div>
+                          );
+                        }
+                        const issueObj = issue as EvaluationIssue;
+                        return (
+                          <div key={i} className="bg-red-50 dark:bg-red-900/20 rounded p-2 border border-red-200 dark:border-red-800">
+                            <p className="text-xs font-medium text-red-700 dark:text-red-300">
+                              {issueObj.problem}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Output Match</span>
-                <Badge variant={result.outputMatch ? "default" : "destructive"}>
-                  {result.outputMatch ? "Yes" : "No"}
-                </Badge>
-              </div>
-              {result.startedAt && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Started</span>
-                  <span className="font-medium text-xs">
-                    {new Date(result.startedAt).toLocaleString()}
-                  </span>
-                </div>
-              )}
-              {result.completedAt && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Completed</span>
-                  <span className="font-medium text-xs">
-                    {new Date(result.completedAt).toLocaleString()}
-                  </span>
-                </div>
+              
+              {!result.analysis.summary && 
+               (!result.analysis.strengths || result.analysis.strengths.length === 0) && 
+               (!result.analysis.issues || result.analysis.issues.length === 0) && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No AI evaluation available
+                </p>
               )}
             </div>
-          </div>
 
-          {/* Error Message */}
-          {result.errorMessage && (
-            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 p-6">
-              <h2 className="text-lg font-semibold text-red-600 mb-2 flex items-center gap-2">
-                <XCircle className="h-5 w-5" />
-                Error
-              </h2>
-              <p className="text-sm text-red-600">{result.errorMessage}</p>
+            {/* Test Details */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4">Test Details</h2>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Duration</span>
+                  <span className="font-medium">{result.durationFormatted}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Latency</span>
+                  <span className="font-medium">{result.latencyMs}ms</span>
+                </div>
+                {result.detectedIntent && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Detected Intent</span>
+                    <span className="font-medium">{result.detectedIntent}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Intent Match</span>
+                  <Badge variant={result.intentMatch ? "default" : "destructive"}>
+                    {result.intentMatch ? "Yes" : "No"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Output Match</span>
+                  <Badge variant={result.outputMatch ? "default" : "destructive"}>
+                    {result.outputMatch ? "Yes" : "No"}
+                  </Badge>
+                </div>
+                {result.startedAt && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Started</span>
+                    <span className="font-medium text-xs">
+                      {new Date(result.startedAt).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {result.completedAt && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Completed</span>
+                    <span className="font-medium text-xs">
+                      {new Date(result.completedAt).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

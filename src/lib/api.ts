@@ -36,7 +36,11 @@ export const api = {
       update: (id: string) => `${API_BASE_URL}/api/agents/${id}`,
       delete: (id: string) => `${API_BASE_URL}/api/agents/${id}`,
       generateTestCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/generate-test-cases`,
+      analyzePrompt: (id: string) => `${API_BASE_URL}/api/agents/${id}/analyze-prompt`,
+      dynamicVariables: (id: string) => `${API_BASE_URL}/api/agents/${id}/dynamic-variables`,
+      knowledgeBase: (id: string) => `${API_BASE_URL}/api/agents/${id}/knowledge-base`,
       testCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/test-cases`,
+      workflow: (id: string) => `${API_BASE_URL}/api/agents/${id}/workflow`,
     },
     
     // Test Cases
@@ -60,6 +64,7 @@ export const api = {
       cancel: (id: string) => `${API_BASE_URL}/api/test-runs/${id}/cancel`,
       delete: (id: string) => `${API_BASE_URL}/api/test-runs/${id}`,
       compare: (ids: string[]) => `${API_BASE_URL}/api/test-runs/compare?ids=${ids.join(',')}`,
+      startWorkflow: `${API_BASE_URL}/api/test-runs/start-workflow`,
     },
     
     // Test Execution
