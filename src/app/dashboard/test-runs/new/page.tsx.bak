@@ -1237,7 +1237,7 @@ export default function NewTestRunPage() {
             <DialogDescription>
               Each category = 1 voice call. All test cases in a category will be tested in a single conversation.
               <span className="block mt-1 text-primary font-medium">
-                💡 Drag test cases between categories to reorganize batches.
+                 Drag test cases between categories to reorganize batches.
               </span>
             </DialogDescription>
           </DialogHeader>

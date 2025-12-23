@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft,
   Play,
@@ -23,6 +24,7 @@ import {
   Bot,
   User,
   BarChart3,
+  AlertTriangle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
@@ -40,6 +42,13 @@ interface TestRunStatus {
     failed: number;
     pending: number;
   };
+}
+
+interface PromptSuggestion {
+  issue: string;
+  suggestion: string;
+  location: string;
+  priority: "high" | "medium" | "low";
 }
 
 interface TestResult {
@@ -63,6 +72,7 @@ interface TestResult {
   userTranscript?: string;
   agentTranscript?: string;
   conversationTurns?: Array<{ role: string; content: string; timestamp: string }>;
+  promptSuggestions?: PromptSuggestion[];
 }
 
 interface BatchGroup {
@@ -79,6 +89,7 @@ interface BatchGroup {
   hasRecording: boolean;
   audioUrl?: string;
   conversationTurns: Array<{ role: string; content: string; timestamp: string }>;
+  promptSuggestions?: PromptSuggestion[];
   userTranscript?: string;
   agentTranscript?: string;
 }
@@ -731,8 +742,15 @@ export default function TestRunDetailPage() {
           </div>
         </div>
 
-        {/* Audio Recording Player */}
-        {selectedBatch.hasRecording && selectedBatch.audioUrl && (
+        <Tabs defaultValue="transcript" className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="transcript">Transcript & Recording</TabsTrigger>
+            <TabsTrigger value="analytics">Call Analytics & Metrics</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="transcript" className="space-y-6">
+            {/* Audio Recording Player */}
+            {selectedBatch.hasRecording && selectedBatch.audioUrl && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-4">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -837,36 +855,72 @@ export default function TestRunDetailPage() {
                   <div className="space-y-2 text-xs">
                     <div>
                       <span className="text-muted-foreground">Expected: </span>
-                      <span className="text-gray-600 dark:text-gray-400">
-                        {result.expectedResponse.length > 100 
-                          ? result.expectedResponse.substring(0, 100) + '...' 
-                          : result.expectedResponse}
+                      <span className="text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                        {result.expectedResponse}
                       </span>
                     </div>
                     {result.actualResponse && (
                       <div>
                         <span className="text-muted-foreground">Actual: </span>
-                        <span className={result.status === 'passed' ? 'text-green-600' : 'text-red-600'}>
-                          {result.actualResponse.length > 100 
-                            ? result.actualResponse.substring(0, 100) + '...' 
-                            : result.actualResponse}
+                        <span className={`whitespace-pre-wrap ${result.status === 'passed' ? 'text-green-600' : 'text-red-600'}`}>
+                          {result.actualResponse}
                         </span>
                       </div>
                     )}
                   </div>
+
+                  {/* Prompt Improvement Suggestions for Failed Tests */}
+                  {result.status === 'failed' && result.promptSuggestions && result.promptSuggestions.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-orange-200 dark:border-orange-800">
+                      <div className="bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-md p-3 border border-orange-200 dark:border-orange-700">
+                        <h4 className="text-sm font-semibold text-orange-900 dark:text-orange-100 mb-2 flex items-center gap-1">
+                          <AlertTriangle className="h-4 w-4" />
+                          AI-Powered Prompt Suggestions
+                        </h4>
+                        <div className="space-y-2">
+                          {/* Dynamic AI-generated suggestions from backend */}
+                          {result.promptSuggestions.map((suggestion, idx) => (
+                            <div 
+                              key={idx}
+                              className={`rounded p-2 border-l-2 ${
+                                suggestion.priority === 'high' ? 'bg-red-50 dark:bg-red-900/30 border-red-500' :
+                                suggestion.priority === 'medium' ? 'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-500' :
+                                'bg-blue-50 dark:bg-blue-900/30 border-blue-500'
+                              }`}
+                            >
+                              {/* Issue description */}
+                              <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                {suggestion.issue}
+                              </p>
+                              {/* Suggestion text */}
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 leading-relaxed mb-1">
+                                &quot;{suggestion.suggestion}&quot;
+                              </p>
+                              {/* Location hint */}
+                              <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">
+                                📍 Add to: {suggestion.location}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
         </div>
+          </TabsContent>
 
-        {/* Comprehensive Metrics Dashboard */}
-        {selectedBatch.hasTranscript && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Call Analytics & Metrics
-            </h2>
+          <TabsContent value="analytics">
+            {/* Comprehensive Metrics Dashboard */}
+            {selectedBatch.hasTranscript && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+                <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  Call Analytics & Metrics
+                </h2>
 
             {(() => {
               const metrics = calculateMetrics(
@@ -1228,6 +1282,8 @@ export default function TestRunDetailPage() {
             })()}
           </div>
         )}
+          </TabsContent>
+        </Tabs>
       </div>
     );
   }
