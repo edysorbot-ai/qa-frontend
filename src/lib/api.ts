@@ -12,6 +12,7 @@ export const api = {
     // Users
     users: {
       me: `${API_BASE_URL}/api/users/me`,
+      dashboard: `${API_BASE_URL}/api/users/dashboard`,
     },
     
     // Integrations
