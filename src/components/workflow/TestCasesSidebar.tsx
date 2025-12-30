@@ -40,15 +40,15 @@ interface TestCasesSidebarProps {
 
 const priorityColors: Record<string, string> = {
   high: 'bg-red-100 text-red-700',
-  medium: 'bg-yellow-100 text-yellow-700',
+  medium: 'bg-slate-100 text-slate-700',
   low: 'bg-green-100 text-green-700',
 };
 
 const categoryColors: Record<string, string> = {
-  'Eligibility': 'bg-purple-50 border-purple-200',
-  'Budget': 'bg-blue-50 border-blue-200',
-  'Objections': 'bg-orange-50 border-orange-200',
-  'Technical': 'bg-cyan-50 border-cyan-200',
+  'Eligibility': 'bg-slate-50 border-slate-200',
+  'Budget': 'bg-slate-50 border-slate-200',
+  'Objections': 'bg-slate-50 border-slate-200',
+  'Technical': 'bg-slate-50 border-slate-200',
   'Edge Cases': 'bg-red-50 border-red-200',
   'General': 'bg-gray-50 border-gray-200',
 };

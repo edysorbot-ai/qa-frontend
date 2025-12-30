@@ -48,9 +48,9 @@ interface TestRun {
 }
 
 const statusColors: Record<string, string> = {
-  running: "bg-blue-100 text-blue-800",
+  running: "bg-slate-200 text-slate-800",
   completed: "bg-green-100 text-green-800",
-  cancelled: "bg-gray-100 text-gray-800",
+  cancelled: "bg-slate-100 text-slate-700",
   failed: "bg-red-100 text-red-800",
 };
 
@@ -157,19 +157,18 @@ export default function TestRunsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Test Runs</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">Test Runs</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             View and manage your test execution history
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchTestRuns}>
-            <RefreshCw className="h-4 w-4 mr-1" />
+            <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
           <Link href="/dashboard/test-runs/new">
-            <Button>
-              <PlayCircle className="mr-2 h-4 w-4" />
+            <Button size="sm">
               Start New Run
             </Button>
           </Link>
@@ -177,107 +176,94 @@ export default function TestRunsPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded-lg">{error}</div>
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm">{error}</div>
       )}
 
       {testRuns.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No Test Runs</CardTitle>
-            <CardDescription>
-              Run your test suite to see execution results here
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">
-              Test runs will show detailed results including pass/fail status,
-              audio transcripts, latency metrics, and conversation analysis.
-            </p>
-            <Link href="/dashboard/test-runs/new">
-              <Button>
-                <PlayCircle className="mr-2 h-4 w-4" />
-                Run Your First Test
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <div className="border rounded-lg p-12 text-center">
+          <h3 className="font-medium text-lg mb-2">No Test Runs</h3>
+          <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
+            Run your test suite to see execution results here. Test runs will show detailed results including pass/fail status, audio transcripts, and latency metrics.
+          </p>
+          <Link href="/dashboard/test-runs/new">
+            <Button>Run Your First Test</Button>
+          </Link>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {testRuns.map((run) => (
-            <Card key={run.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <Link href={`/dashboard/test-runs/${run.id}`} className="flex-1 cursor-pointer">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <h3 className="font-semibold text-lg">{run.name}</h3>
-                        <Badge
-                          className={`${statusColors[run.status]} flex items-center gap-1`}
-                        >
-                          {statusIcons[run.status]}
-                          {run.status.toUpperCase()}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-muted/50">
+              <tr className="text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <th className="px-6 py-3">Test Run</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3 text-center">Total</th>
+                <th className="px-6 py-3 text-center">Passed</th>
+                <th className="px-6 py-3 text-center">Failed</th>
+                <th className="px-6 py-3">Progress</th>
+                <th className="px-6 py-3 w-12"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {testRuns.map((run) => (
+                <tr 
+                  key={run.id} 
+                  className="hover:bg-muted/30 transition-colors cursor-pointer"
+                  onClick={() => window.location.href = `/dashboard/test-runs/${run.id}`}
+                >
+                  <td className="px-6 py-4">
+                    <div>
+                      <div className="font-medium">{run.name}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {new Date(run.createdAt).toLocaleString()}
-                      </p>
+                      </div>
                     </div>
-                  </Link>
-
-                  <div className="flex items-center gap-8">
-                    <Link href={`/dashboard/test-runs/${run.id}`} className="flex items-center gap-8 cursor-pointer">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold">
-                          {run.stats.total}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Total
-                        </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <Badge
+                      className={`${statusColors[run.status]} flex items-center gap-1.5 w-fit`}
+                    >
+                      {statusIcons[run.status]}
+                      {run.status.toUpperCase()}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="font-semibold">{run.stats.total}</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="font-semibold text-green-600">{run.stats.passed}</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="font-semibold text-red-600">{run.stats.failed}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="w-32">
+                      <Progress
+                        value={
+                          run.stats.total > 0
+                            ? (run.stats.completed / run.stats.total) * 100
+                            : 0
+                        }
+                        className="h-1.5"
+                      />
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        {run.stats.completed} / {run.stats.total} completed
                       </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-green-600">
-                          {run.stats.passed}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Passed
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-red-600">
-                          {run.stats.failed}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Failed
-                        </div>
-                      </div>
-                      <div className="w-32">
-                        <Progress
-                          value={
-                            run.stats.total > 0
-                              ? (run.stats.completed / run.stats.total) * 100
-                              : 0
-                          }
-                          className="h-2"
-                        />
-                        <div className="text-xs text-muted-foreground mt-1 text-center">
-                          {run.stats.completed} / {run.stats.total} completed
-                        </div>
-                      </div>
-                    </Link>
-                    
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={(e) => handleDeleteClick(e, run)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                      className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

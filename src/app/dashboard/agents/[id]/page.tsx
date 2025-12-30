@@ -60,6 +60,8 @@ import {
   BookOpen,
   FileQuestion,
   ExternalLink,
+  Eye,
+  Maximize2,
 } from "lucide-react";
 import {
   Dialog,
@@ -151,6 +153,10 @@ interface KnowledgeBaseItem {
   description?: string;
   status?: string;
   url?: string;
+  metadata?: {
+    size_bytes?: number;
+    [key: string]: any;
+  };
 }
 
 interface TestRun {
@@ -189,6 +195,10 @@ interface KnowledgeBaseItem {
   url?: string;
   status?: string;
   createdAt?: string;
+  metadata?: {
+    size_bytes?: number;
+    [key: string]: any;
+  };
 }
 
 const providerNames: Record<Provider, string> = {
@@ -200,39 +210,39 @@ const providerNames: Record<Provider, string> = {
 
 const priorityColors: Record<string, string> = {
   high: "bg-red-100 text-red-800",
-  medium: "bg-yellow-100 text-yellow-800",
+  medium: "bg-slate-100 text-slate-800",
   low: "bg-green-100 text-green-800",
 };
 
 const categoryColors: Record<string, string> = {
   "Happy Path": "bg-green-100 text-green-800",
-  "Edge Case": "bg-orange-100 text-orange-800",
+  "Edge Case": "bg-slate-100 text-slate-800",
   "Error Handling": "bg-red-100 text-red-800",
-  "Boundary Testing": "bg-purple-100 text-purple-800",
-  "Conversation Flow": "bg-blue-100 text-blue-800",
-  "Tool/Function Testing": "bg-cyan-100 text-cyan-800",
+  "Boundary Testing": "bg-slate-100 text-slate-800",
+  "Conversation Flow": "bg-slate-100 text-slate-800",
+  "Tool/Function Testing": "bg-slate-100 text-slate-800",
   "Off-Topic": "bg-gray-100 text-gray-800",
   "General": "bg-slate-100 text-slate-800",
-  "Custom": "bg-pink-100 text-pink-800",
+  "Custom": "bg-slate-100 text-slate-800",
 };
 
 const providerColors: Record<Provider, string> = {
-  elevenlabs: "bg-purple-100 text-purple-800",
-  retell: "bg-blue-100 text-blue-800",
-  vapi: "bg-green-100 text-green-800",
-  openai_realtime: "bg-orange-100 text-orange-800",
+  elevenlabs: "bg-slate-100 text-slate-800",
+  retell: "bg-slate-100 text-slate-800",
+  vapi: "bg-slate-100 text-slate-800",
+  openai_realtime: "bg-slate-100 text-slate-800",
 };
 
 const severityColors: Record<string, string> = {
   high: "border-red-300 bg-red-50",
-  medium: "border-yellow-300 bg-yellow-50",
-  low: "border-blue-300 bg-blue-50",
+  medium: "border-slate-300 bg-slate-50",
+  low: "border-slate-300 bg-slate-50",
 };
 
 const severityIcons: Record<string, React.ReactNode> = {
   high: <AlertCircle className="h-4 w-4 text-red-500" />,
-  medium: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
-  low: <Lightbulb className="h-4 w-4 text-blue-500" />,
+  medium: <AlertTriangle className="h-4 w-4 text-slate-500" />,
+  low: <Lightbulb className="h-4 w-4 text-slate-500" />,
 };
 
 export default function AgentDetailPage() {
@@ -300,10 +310,17 @@ export default function AgentDetailPage() {
   // Dynamic Variables state
   const [dynamicVariables, setDynamicVariables] = useState<DynamicVariable[]>([]);
   const [isLoadingVariables, setIsLoadingVariables] = useState(false);
+  const [showDynamicVariablesDialog, setShowDynamicVariablesDialog] = useState(false);
 
   // Knowledge Base state
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>([]);
   const [isLoadingKnowledgeBase, setIsLoadingKnowledgeBase] = useState(false);
+
+  // Document viewer state
+  const [selectedDocument, setSelectedDocument] = useState<KnowledgeBaseItem | null>(null);
+  const [documentContent, setDocumentContent] = useState<string>('');
+  const [isLoadingDocumentContent, setIsLoadingDocumentContent] = useState(false);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
 
   // Get unique categories from existing test cases
   const existingCategories = [...new Set(savedTestCases.map(tc => tc.category))].filter(Boolean);
@@ -505,11 +522,44 @@ export default function AgentDetailPage() {
     }
   }, [agentId, getToken]);
 
-  // Handle test run selection for comparison
+  // Fetch knowledge base document content
+  const fetchDocumentContent = useCallback(async (document: KnowledgeBaseItem) => {
+    try {
+      setSelectedDocument(document);
+      setShowDocumentViewer(true);
+      setIsLoadingDocumentContent(true);
+      setDocumentContent('');
+      
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(
+        api.endpoints.agents.knowledgeBaseDocumentContent(agentId, document.id),
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDocumentContent(data.content || '');
+      } else {
+        const errorData = await response.json();
+        setDocumentContent(`Error loading document: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error("Error fetching document content:", error);
+      setDocumentContent('Error loading document content');
+    } finally {
+      setIsLoadingDocumentContent(false);
+    }
+  }, [agentId, getToken]);
+
+  // Handle test run selection for comparison (max 2)
   const handleRunSelectionChange = (runId: string, checked: boolean) => {
     setSelectedRunIds(prev => {
       const newSet = new Set(prev);
       if (checked) {
+        // Limit to 2 selections max
+        if (newSet.size >= 2) return prev;
         newSet.add(runId);
       } else {
         newSet.delete(runId);
@@ -1221,7 +1271,7 @@ export default function AgentDetailPage() {
     return (
       <div key={label} className="space-y-1">
         <p className="text-sm font-medium text-muted-foreground capitalize">{label}</p>
-        <p className="text-sm">
+        <div className="text-sm">
           {typeof value === "boolean" ? (
             <Badge variant={value ? "default" : "secondary"}>
               {value ? "Yes" : "No"}
@@ -1229,7 +1279,7 @@ export default function AgentDetailPage() {
           ) : (
             String(value)
           )}
-        </p>
+        </div>
       </div>
     );
   };
@@ -1580,20 +1630,15 @@ export default function AgentDetailPage() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <Bot className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">{agent.name}</h1>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className={providerColors[agent.provider]}>
-                  {providerNames[agent.provider]}
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  Connected {formatDate(agent.created_at)}
-                </span>
-              </div>
+          <div>
+            <h1 className="text-2xl font-bold">{agent.name}</h1>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className={providerColors[agent.provider]}>
+                {providerNames[agent.provider]}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                Connected {formatDate(agent.created_at)}
+              </span>
             </div>
           </div>
         </div>
@@ -1632,18 +1677,12 @@ export default function AgentDetailPage() {
             <TestTube2 className="mr-2 h-4 w-4" />
             Test Cases
           </TabsTrigger>
+          {/* Test Flow tab hidden for now
           <TabsTrigger value="testflow">
             <Workflow className="mr-2 h-4 w-4" />
             Test Flow
           </TabsTrigger>
-          <TabsTrigger value="knowledgebase">
-            <Database className="mr-2 h-4 w-4" />
-            Knowledge Base
-          </TabsTrigger>
-          <TabsTrigger value="variables">
-            <Variable className="mr-2 h-4 w-4" />
-            Dynamic Variables
-          </TabsTrigger>
+          */}
           <TabsTrigger value="testruns">
             <Play className="mr-2 h-4 w-4" />
             Previous Test Runs
@@ -1825,6 +1864,89 @@ export default function AgentDetailPage() {
                 <p className="text-sm text-muted-foreground text-center py-4 mt-4">
                   No version history yet. Configuration versions will be tracked when changes are detected from the provider.
                 </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Knowledge Base Section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="h-5 w-5" />
+                    Knowledge Base
+                  </CardTitle>
+                  <CardDescription>
+                    Documents and data sources connected to this agent
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={fetchKnowledgeBase} disabled={isLoadingKnowledgeBase}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingKnowledgeBase ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingKnowledgeBase ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : knowledgeBase.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <BookOpen className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                  <h3 className="font-medium mb-1">No Knowledge Base Found</h3>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    This agent doesn't have any connected knowledge base or documents.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {knowledgeBase.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => fetchDocumentContent(item)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                          {item.type === 'url' ? (
+                            <ExternalLink className="h-4 w-4 text-primary" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-primary" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">{item.name}</p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Badge variant="outline" className="text-xs py-0">
+                              {item.type}
+                            </Badge>
+                            {item.metadata?.size_bytes && (
+                              <span>Size: {(item.metadata.size_bytes / 1024).toFixed(1)} KB</span>
+                            )}
+                            {item.url && (
+                              <span className="truncate max-w-[200px]">Source: {item.url}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Badge variant="default" className="text-xs">active</Badge>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); fetchDocumentContent(item); }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {item.url && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild onClick={(e) => e.stopPropagation()}>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2085,7 +2207,7 @@ export default function AgentDetailPage() {
                               <span className="text-muted-foreground">{deletedCount} deleted</span>
                             </span>
                             <span className="flex items-center gap-1">
-                              <span className="w-3 h-3 rounded bg-yellow-500/20 border border-yellow-500"></span>
+                              <span className="w-3 h-3 rounded bg-slate-500/20 border border-slate-500"></span>
                               <span className="text-muted-foreground">{modifiedCount} modified</span>
                             </span>
                             <span className="flex items-center gap-1">
@@ -2234,7 +2356,7 @@ export default function AgentDetailPage() {
                     </div>
                     
                     {!agent?.prompt && (
-                      <p className="text-sm text-amber-600 text-center">
+                      <p className="text-sm text-slate-600 text-center">
                         No prompt available. Click Refresh to fetch agent data from provider.
                       </p>
                     )}
@@ -2274,6 +2396,17 @@ export default function AgentDetailPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => {
+                        fetchDynamicVariables();
+                        setShowDynamicVariablesDialog(true);
+                      }}
+                    >
+                      <span className="mr-2 text-xs font-bold">{"{X}"}</span>
+                      Dynamic Variables
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setShowAddForm(true)}
                       disabled={showAddForm}
                     >
@@ -2281,10 +2414,8 @@ export default function AgentDetailPage() {
                       Add Test Case
                     </Button>
                     <Button variant="outline" onClick={handleGenerateTestCases} disabled={isGeneratingTests}>
-                      {isGeneratingTests ? (
+                      {isGeneratingTests && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-4 w-4" />
                       )}
                       Generate More
                     </Button>
@@ -2621,10 +2752,10 @@ export default function AgentDetailPage() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  {selectedRunIds.size >= 2 && (
+                  {selectedRunIds.size === 2 && (
                     <Button onClick={handleCompareRuns} className="gap-2">
                       <GitCompare className="h-4 w-4" />
-                      Compare {selectedRunIds.size} Runs
+                      Compare 2 Runs
                     </Button>
                   )}
                   <Button
@@ -2656,10 +2787,10 @@ export default function AgentDetailPage() {
                 </div>
               ) : (
                 <>
-                  {selectedRunIds.size > 0 && selectedRunIds.size < 2 && (
-                    <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg flex items-center gap-2">
+                  {selectedRunIds.size === 1 && (
+                    <div className="mb-4 p-3 bg-slate-50 text-slate-700 rounded-lg flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" />
-                      Select at least 2 test runs to compare
+                      Select 1 more test run to compare
                     </div>
                   )}
                   <div className="border rounded-lg overflow-hidden shadow-sm">
@@ -2684,8 +2815,8 @@ export default function AgentDetailPage() {
                         {testRuns.map((run) => {
                           const statusColors: Record<string, string> = {
                             completed: "bg-green-100 text-green-800",
-                            running: "bg-blue-100 text-blue-800",
-                            pending: "bg-yellow-100 text-yellow-800",
+                            running: "bg-slate-100 text-slate-800",
+                            pending: "bg-slate-100 text-slate-800",
                             failed: "bg-red-100 text-red-800",
                             cancelled: "bg-gray-100 text-gray-800",
                           };
@@ -2702,7 +2833,8 @@ export default function AgentDetailPage() {
                                 <Checkbox
                                   checked={selectedRunIds.has(run.id)}
                                   onCheckedChange={(checked) => handleRunSelectionChange(run.id, checked as boolean)}
-                                  disabled={run.status !== 'completed'}
+                                  disabled={run.status !== 'completed' || (selectedRunIds.size >= 2 && !selectedRunIds.has(run.id))}
+                                  className={selectedRunIds.size >= 2 && !selectedRunIds.has(run.id) ? 'cursor-not-allowed opacity-50' : ''}
                                 />
                               </td>
                               <td className="px-4 py-3">
@@ -2773,14 +2905,17 @@ export default function AgentDetailPage() {
                   {knowledgeBase.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => fetchDocumentContent(item)}
                     >
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                           {item.type === 'document' && <FileText className="h-5 w-5 text-primary" />}
+                          {item.type === 'file' && <FileText className="h-5 w-5 text-primary" />}
                           {item.type === 'vector_store' && <Database className="h-5 w-5 text-primary" />}
                           {item.type === 'retrieval_tool' && <FileQuestion className="h-5 w-5 text-primary" />}
-                          {!['document', 'vector_store', 'retrieval_tool'].includes(item.type) && (
+                          {item.type === 'url' && <ExternalLink className="h-5 w-5 text-primary" />}
+                          {!['document', 'file', 'vector_store', 'retrieval_tool', 'url'].includes(item.type) && (
                             <BookOpen className="h-5 w-5 text-primary" />
                           )}
                         </div>
@@ -2802,8 +2937,11 @@ export default function AgentDetailPage() {
                             {item.status}
                           </Badge>
                         )}
+                        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); fetchDocumentContent(item); }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
                         {item.url && (
-                          <Button variant="ghost" size="icon" asChild>
+                          <Button variant="ghost" size="icon" asChild onClick={(e) => e.stopPropagation()}>
                             <a href={item.url} target="_blank" rel="noopener noreferrer">
                               <ExternalLink className="h-4 w-4" />
                             </a>
@@ -2817,152 +2955,35 @@ export default function AgentDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* Dynamic Variables Tab */}
-        <TabsContent value="variables" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Variable className="h-5 w-5" />
-                    Dynamic Variables
-                  </CardTitle>
-                  <CardDescription>
-                    Variables extracted from the agent's prompt. Set test values for testing.
-                  </CardDescription>
-                </div>
-                <Button variant="outline" onClick={fetchDynamicVariables} disabled={isLoadingVariables}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingVariables ? "animate-spin" : ""}`} />
-                  Refresh
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingVariables ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              ) : dynamicVariables.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Variable className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No Dynamic Variables Found</h3>
-                  <p className="text-muted-foreground max-w-md">
-                    No dynamic variables (like {"{{variable}}"} or {"{variable}"}) were detected in the agent's prompt.
-                    Dynamic variables allow you to personalize conversations with caller-specific data.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Variable Name
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Pattern
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Source
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Test Value
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {dynamicVariables.map((variable, index) => (
-                          <tr key={index} className="hover:bg-muted/30">
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <code className="bg-primary/10 text-primary px-2 py-1 rounded text-sm font-mono">
-                                  {variable.name}
-                                </code>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                                {variable.pattern}
-                              </code>
-                            </td>
-                            <td className="px-4 py-3">
-                              <Badge variant="outline" className="text-xs">
-                                {variable.source}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3">
-                              <Input
-                                value={variable.testValue || ''}
-                                onChange={(e) => {
-                                  const newVars = [...dynamicVariables];
-                                  newVars[index] = { ...newVars[index], testValue: e.target.value };
-                                  setDynamicVariables(newVars);
-                                }}
-                                placeholder={variable.defaultValue || `Enter test value for ${variable.name}`}
-                                className="h-8 text-sm max-w-xs"
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  
-                  {dynamicVariables.length > 0 && (
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={() => {
-                          // Save variables to localStorage for use in test runs
-                          const varsToSave = dynamicVariables.reduce((acc, v) => {
-                            if (v.testValue) acc[v.name] = v.testValue;
-                            return acc;
-                          }, {} as Record<string, string>);
-                          localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
-                          alert('Test values saved! They will be used when running tests.');
-                        }}
-                      >
-                        <Check className="mr-2 h-4 w-4" />
-                        Save Test Values
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Generated Test Cases Selection Dialog - Full Screen */}
       <Dialog open={showGeneratedTestCasesDialog} onOpenChange={setShowGeneratedTestCasesDialog}>
         <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !m-0 flex flex-col p-0 [&>button]:hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b bg-background">
+          <div className="flex items-center justify-between px-8 py-5 border-b bg-background">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-xl">
-                <Sparkles className="h-5 w-5 text-primary" />
+              <DialogTitle className="text-xl font-semibold">
                 Generated Test Cases
               </DialogTitle>
-              <DialogDescription className="mt-1">
+              <DialogDescription className="mt-1 text-muted-foreground">
                 Select the test cases you want to add. {generatedTestCases.length} test case{generatedTestCases.length !== 1 ? 's' : ''} generated.
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
                 <Checkbox
                   id="select-all-generated"
                   checked={selectedGeneratedTestCases.size === generatedTestCases.length && generatedTestCases.length > 0}
                   onCheckedChange={(checked) => handleSelectAllGeneratedTestCases(checked as boolean)}
                 />
-                <Label htmlFor="select-all-generated" className="text-sm font-medium cursor-pointer">
+                <span className="text-sm font-medium">
                   Select All ({selectedGeneratedTestCases.size} of {generatedTestCases.length} selected)
-                </Label>
-              </div>
-              <Badge variant="outline" className="text-sm px-3 py-1">
+                </span>
+              </label>
+              <span className="text-sm font-medium text-muted-foreground bg-muted px-3 py-1.5 rounded-md">
                 {selectedGeneratedTestCases.size} selected
-              </Badge>
+              </span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -2978,62 +2999,69 @@ export default function AgentDetailPage() {
             </div>
           </div>
           
-          {/* Scrollable Test Cases Grid */}
-          <div className="flex-1 overflow-auto px-6 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {generatedTestCases.map((tc) => (
-                <div
-                  key={tc.id}
-                  onClick={() => handleGeneratedTestCaseSelection(tc.id, !selectedGeneratedTestCases.has(tc.id))}
-                  className={`border rounded-lg p-4 transition-all cursor-pointer hover:shadow-md ${
-                    selectedGeneratedTestCases.has(tc.id)
-                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                      : 'border-border hover:border-muted-foreground/50'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      id={`tc-${tc.id}`}
-                      checked={selectedGeneratedTestCases.has(tc.id)}
-                      onCheckedChange={(checked) => handleGeneratedTestCaseSelection(tc.id, checked as boolean)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-0.5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                        <Label htmlFor={`tc-${tc.id}`} className="font-medium cursor-pointer text-sm line-clamp-1">
-                          {tc.name}
-                        </Label>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        <Badge 
-                          variant="secondary" 
-                          className={`text-xs ${categoryColors[tc.category] || 'bg-gray-100 text-gray-800'}`}
-                        >
-                          {tc.category}
-                        </Badge>
-                        <Badge 
-                          variant="secondary" 
-                          className={`text-xs ${priorityColors[tc.priority] || ''}`}
-                        >
-                          {tc.priority}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{tc.scenario}</p>
-                      {tc.expectedOutcome && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          <span className="font-medium">Expected:</span> {tc.expectedOutcome}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {/* Scrollable Test Cases Table */}
+          <div className="flex-1 overflow-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <th className="px-8 py-3 w-12"></th>
+                  <th className="px-4 py-3 w-[280px]">Test Case</th>
+                  <th className="px-4 py-3 w-[120px]">Category</th>
+                  <th className="px-4 py-3 w-[80px]">Priority</th>
+                  <th className="px-4 py-3">Scenario</th>
+                  <th className="px-4 py-3">Expected Outcome</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {generatedTestCases.map((tc) => (
+                  <tr
+                    key={tc.id}
+                    onClick={() => handleGeneratedTestCaseSelection(tc.id, !selectedGeneratedTestCases.has(tc.id))}
+                    className={`cursor-pointer transition-colors ${
+                      selectedGeneratedTestCases.has(tc.id)
+                        ? 'bg-primary/5'
+                        : 'hover:bg-muted/50'
+                    }`}
+                  >
+                    <td className="px-8 py-4">
+                      <Checkbox
+                        id={`tc-${tc.id}`}
+                        checked={selectedGeneratedTestCases.has(tc.id)}
+                        onCheckedChange={(checked) => handleGeneratedTestCaseSelection(tc.id, checked as boolean)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="font-medium text-sm">{tc.name}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
+                        {tc.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${
+                        tc.priority === 'high' ? 'bg-red-100 text-red-700' :
+                        tc.priority === 'low' ? 'bg-green-100 text-green-700' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {tc.priority}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="text-sm text-muted-foreground line-clamp-2">{tc.scenario}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="text-sm text-muted-foreground line-clamp-2">{tc.expectedOutcome || '-'}</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-background">
+          <div className="flex items-center justify-end gap-3 px-8 py-4 border-t bg-background">
             <Button
               variant="outline"
               onClick={() => {
@@ -3088,6 +3116,265 @@ export default function AgentDetailPage() {
                 "Delete"
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Document Viewer Dialog - Fullscreen */}
+      <Dialog open={showDocumentViewer} onOpenChange={setShowDocumentViewer}>
+        <DialogContent className="!max-w-none !w-screen !h-screen !m-0 !rounded-none flex flex-col">
+          <DialogHeader className="flex-shrink-0 px-6 pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl font-semibold">
+                    {selectedDocument?.name || 'Document'}
+                  </DialogTitle>
+                  <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+                    <Badge variant="outline" className="text-xs">
+                      {selectedDocument?.type || 'file'}
+                    </Badge>
+                    {selectedDocument?.metadata?.size_bytes && (
+                      <span className="text-xs">
+                        Size: {(selectedDocument.metadata.size_bytes / 1024).toFixed(1)} KB
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden mx-6 border rounded-lg bg-muted/30 min-h-0">
+            {isLoadingDocumentContent ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">Loading document content...</p>
+                </div>
+              </div>
+            ) : documentContent ? (
+              <ScrollArea className="h-full w-full">
+                <div className="p-6">
+                  {documentContent.startsWith('Error') ? (
+                    // Show error message
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+                      <p className="text-destructive font-medium">{documentContent}</p>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        The document content could not be retrieved from ElevenLabs.
+                      </p>
+                    </div>
+                  ) : documentContent.trim().startsWith('<') && documentContent.includes('</') ? (
+                    // Render HTML content
+                    <div 
+                      className="prose prose-sm dark:prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ __html: documentContent }}
+                    />
+                  ) : (
+                    // Render formatted text content with Q&A parsing
+                    <div className="space-y-4 text-sm leading-relaxed">
+                      {documentContent.split('\n').map((line, index) => {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine) return <div key={index} className="h-2" />;
+                        
+                        // Question line (starts with Q:)
+                        if (trimmedLine.startsWith('Q:')) {
+                          return (
+                            <div key={index} className="mt-4">
+                              <p className="font-semibold text-primary">
+                                {trimmedLine}
+                              </p>
+                            </div>
+                          );
+                        }
+                        
+                        // Answer line (starts with A:)
+                        if (trimmedLine.startsWith('A:')) {
+                          return (
+                            <div key={index} className="ml-4 pl-4 border-l-2 border-muted-foreground/20">
+                              <p className="text-foreground">
+                                {trimmedLine.substring(2).trim()}
+                              </p>
+                            </div>
+                          );
+                        }
+                        
+                        // Header lines (contains flag emoji - check for regional indicator symbols)
+                        const hasFlag = /[\u{1F1E6}-\u{1F1FF}]{2}/u.test(trimmedLine);
+                        if (hasFlag || (trimmedLine === trimmedLine.toUpperCase() && trimmedLine.length > 3 && !trimmedLine.startsWith('•'))) {
+                          return (
+                            <h3 key={index} className="font-bold text-lg mt-6 mb-2 text-foreground">
+                              {trimmedLine}
+                            </h3>
+                          );
+                        }
+                        
+                        // Bullet points
+                        if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+                          return (
+                            <div key={index} className="ml-4 flex gap-2">
+                              <span className="text-muted-foreground">•</span>
+                              <span>{trimmedLine.substring(1).trim()}</span>
+                            </div>
+                          );
+                        }
+                        
+                        // Regular paragraph
+                        return (
+                          <p key={index} className="text-foreground">
+                            {trimmedLine}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <FileQuestion className="h-12 w-12 text-muted-foreground/50" />
+                  <p className="text-muted-foreground">No content available</p>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="flex-shrink-0 px-6 pb-4 mt-4">
+            {selectedDocument?.url && (
+              <Button variant="outline" asChild>
+                <a href={selectedDocument.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open Source
+                </a>
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setShowDocumentViewer(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dynamic Variables Dialog */}
+      <Dialog open={showDynamicVariablesDialog} onOpenChange={setShowDynamicVariablesDialog}>
+        <DialogContent className="max-w-5xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="h-5 w-5 flex items-center justify-center text-sm font-bold">{'{X}'}</span>
+                  Dynamic Variables
+                </DialogTitle>
+                <DialogDescription>
+                  Variables extracted from the agent's prompt. Set test values for testing.
+                </DialogDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchDynamicVariables} disabled={isLoadingVariables}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingVariables ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto">
+            {isLoadingVariables ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : dynamicVariables.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <span className="h-12 w-12 flex items-center justify-center text-2xl font-bold text-muted-foreground/50 mb-4">{'{X}'}</span>
+                <h3 className="text-lg font-medium mb-2">No Dynamic Variables Found</h3>
+                <p className="text-muted-foreground max-w-md">
+                  No dynamic variables (like {"{{variable}}"} or {"{variable}"}) were detected in the agent's prompt.
+                  Dynamic variables allow you to personalize conversations with caller-specific data.
+                </p>
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Variable Name
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Pattern
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Source
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Test Value
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {dynamicVariables.map((variable, index) => (
+                      <tr key={index} className="hover:bg-muted/30">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <code className="bg-primary/10 text-primary px-2 py-1 rounded text-sm font-mono">
+                              {variable.name}
+                            </code>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                            {variable.pattern}
+                          </code>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className="text-xs">
+                            {variable.source}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Input
+                            value={variable.testValue || ''}
+                            onChange={(e) => {
+                              const newVars = [...dynamicVariables];
+                              newVars[index] = { ...newVars[index], testValue: e.target.value };
+                              setDynamicVariables(newVars);
+                            }}
+                            placeholder={variable.defaultValue || `Enter test value for ${variable.name}`}
+                            className="h-8 text-sm max-w-xs"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setShowDynamicVariablesDialog(false)}>
+              Cancel
+            </Button>
+            {dynamicVariables.length > 0 && (
+              <Button
+                onClick={() => {
+                  // Save variables to localStorage for use in test runs
+                  const varsToSave = dynamicVariables.reduce((acc, v) => {
+                    if (v.testValue) acc[v.name] = v.testValue;
+                    return acc;
+                  }, {} as Record<string, string>);
+                  localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
+                  setShowDynamicVariablesDialog(false);
+                  alert('Test values saved! They will be used when running tests.');
+                }}
+              >
+                <Check className="mr-2 h-4 w-4" />
+                Save Test Values
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

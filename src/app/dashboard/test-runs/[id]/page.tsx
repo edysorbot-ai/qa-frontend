@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
+import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
 
 interface TestRunStatus {
   id: string;
@@ -487,11 +488,11 @@ const calculateMetrics = (
 const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
-  pending: "bg-yellow-100 text-yellow-800",
-  running: "bg-blue-100 text-blue-800 animate-pulse",
+  pending: "bg-slate-100 text-slate-700",
+  running: "bg-slate-200 text-slate-800 animate-pulse",
   completed: "bg-green-100 text-green-800",
-  cancelled: "bg-gray-100 text-gray-800",
-  paused: "bg-orange-100 text-orange-800",
+  cancelled: "bg-slate-100 text-slate-700",
+  paused: "bg-slate-200 text-slate-700",
 };
 
 export default function TestRunDetailPage() {
@@ -734,7 +735,7 @@ export default function TestRunDetailPage() {
               </Badge>
             )}
             {selectedBatch.runningCount > 0 && (
-              <Badge className="bg-blue-100 text-blue-800 animate-pulse">
+              <Badge className="bg-slate-200 text-slate-800 animate-pulse">
                 <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                 {selectedBatch.runningCount} running
               </Badge>
@@ -751,26 +752,12 @@ export default function TestRunDetailPage() {
           <TabsContent value="transcript" className="space-y-6">
             {/* Audio Recording Player */}
             {selectedBatch.hasRecording && selectedBatch.audioUrl && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Volume2 className="h-5 w-5 text-purple-600" />
-                <span className="font-medium">Call Recording</span>
-              </div>
-              <audio 
-                controls 
-                className="flex-1 h-10"
+              <ModernAudioPlayer
                 src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}${selectedBatch.audioUrl}`}
-                onLoadedMetadata={(e) => {
-                  const audio = e.target as HTMLAudioElement;
-                  setAudioDuration(audio.duration);
-                }}
-              >
-                Your browser does not support the audio element.
-              </audio>
-            </div>
-          </div>
-        )}
+                conversationTurns={selectedBatch.conversationTurns}
+                onTimeUpdate={(time) => setAudioDuration(time)}
+              />
+            )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Conversation Transcript */}
@@ -786,8 +773,8 @@ export default function TestRunDetailPage() {
                   <div key={index} className="flex gap-3">
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                       turn.role === 'user' 
-                        ? 'bg-slate-700 text-white' 
-                        : 'bg-purple-600 text-white'
+                        ? 'bg-slate-800 text-white' 
+                        : 'bg-slate-500 text-white'
                     }`}>
                       {turn.role === 'user' ? (
                         <User className="h-4 w-4" />
@@ -798,7 +785,7 @@ export default function TestRunDetailPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-xs font-semibold ${
-                          turn.role === 'user' ? 'text-slate-600' : 'text-purple-600'
+                          turn.role === 'user' ? 'text-slate-700 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400'
                         }`}>
                           {turn.role === 'user' ? 'TEST CALLER' : 'AI AGENT'}
                         </span>
@@ -806,7 +793,7 @@ export default function TestRunDetailPage() {
                       <div className={`rounded-lg p-3 text-sm ${
                         turn.role === 'user'
                           ? 'bg-slate-100 dark:bg-slate-800'
-                          : 'bg-purple-50 dark:bg-purple-900/30'
+                          : 'bg-slate-50 dark:bg-slate-800/50'
                       }`}>
                         {turn.content}
                       </div>
@@ -829,7 +816,7 @@ export default function TestRunDetailPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
             <h2 className="text-lg font-semibold mb-4">Test Cases in This Call</h2>
             
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
               {selectedBatch.results.map((result) => (
                 <div 
                   key={result.id}
@@ -839,8 +826,8 @@ export default function TestRunDetailPage() {
                     <div className="flex items-center gap-2">
                       {result.status === "passed" && <CheckCircle2 className="h-5 w-5 text-green-500" />}
                       {result.status === "failed" && <XCircle className="h-5 w-5 text-red-500" />}
-                      {result.status === "pending" && <Clock className="h-5 w-5 text-yellow-500" />}
-                      {result.status === "running" && <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />}
+                      {result.status === "pending" && <Clock className="h-5 w-5 text-slate-500" />}
+                      {result.status === "running" && <Loader2 className="h-5 w-5 text-slate-600 animate-spin" />}
                       <Badge className={statusColors[result.status]}>
                         {result.status.toUpperCase()}
                       </Badge>
@@ -871,9 +858,9 @@ export default function TestRunDetailPage() {
 
                   {/* Prompt Improvement Suggestions for Failed Tests */}
                   {result.status === 'failed' && result.promptSuggestions && result.promptSuggestions.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-orange-200 dark:border-orange-800">
-                      <div className="bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-md p-3 border border-orange-200 dark:border-orange-700">
-                        <h4 className="text-sm font-semibold text-orange-900 dark:text-orange-100 mb-2 flex items-center gap-1">
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                      <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-3 border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1">
                           <AlertTriangle className="h-4 w-4" />
                           AI-Powered Prompt Suggestions
                         </h4>
@@ -883,22 +870,22 @@ export default function TestRunDetailPage() {
                             <div 
                               key={idx}
                               className={`rounded p-2 border-l-2 ${
-                                suggestion.priority === 'high' ? 'bg-red-50 dark:bg-red-900/30 border-red-500' :
-                                suggestion.priority === 'medium' ? 'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-500' :
-                                'bg-blue-50 dark:bg-blue-900/30 border-blue-500'
+                                suggestion.priority === 'high' ? 'bg-slate-100 dark:bg-slate-700/50 border-slate-800' :
+                                suggestion.priority === 'medium' ? 'bg-slate-100 dark:bg-slate-700/50 border-slate-500' :
+                                'bg-slate-100 dark:bg-slate-700/50 border-slate-400'
                               }`}
                             >
                               {/* Issue description */}
-                              <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                                 {suggestion.issue}
                               </p>
                               {/* Suggestion text */}
-                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 leading-relaxed mb-1">
+                              <p className="text-xs font-mono text-slate-800 dark:text-slate-200 leading-relaxed mb-1">
                                 &quot;{suggestion.suggestion}&quot;
                               </p>
                               {/* Location hint */}
-                              <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">
-                                📍 Add to: {suggestion.location}
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                ↳ Add to: {suggestion.location}
                               </p>
                             </div>
                           ))}
@@ -1173,91 +1160,15 @@ export default function TestRunDetailPage() {
                     </div>
                   </div>
 
-                  {/* Prompt Analysis & Recommendations */}
-                  <div className="border rounded-md p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        Prompt Analysis
-                      </h3>
-                      <span className="text-sm font-semibold">{metrics.promptAnalysis.overallScore}/100</span>
-                    </div>
-
-                    {/* Strengths & Weaknesses */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div className="border rounded-md p-3">
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                          Strengths
-                        </h4>
-                        {metrics.promptAnalysis.strengths.length > 0 ? (
-                          <ul className="space-y-1">
-                            {metrics.promptAnalysis.strengths.map((strength, idx) => (
-                              <li key={idx} className="flex items-center gap-2 text-sm">
-                                <span className="text-muted-foreground">•</span>
-                                {strength}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No specific strengths identified</p>
-                        )}
-                      </div>
-                      <div className="border rounded-md p-3">
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                          Areas for Improvement
-                        </h4>
-                        {metrics.promptAnalysis.weaknesses.length > 0 ? (
-                          <ul className="space-y-1">
-                            {metrics.promptAnalysis.weaknesses.map((weakness, idx) => (
-                              <li key={idx} className="flex items-center gap-2 text-sm">
-                                <span className="text-muted-foreground">•</span>
-                                {weakness}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No weaknesses identified</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Recommendations */}
-                    {metrics.promptAnalysis.issues.length > 0 && (
-                      <div className="border-t pt-4">
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                          Recommendations
-                        </h4>
-                        <div className="space-y-3">
-                          {metrics.promptAnalysis.issues.map((issue, idx) => (
-                            <div key={idx} className="border rounded-md p-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium">{issue.area}</span>
-                                <span className="text-xs text-muted-foreground uppercase">{issue.severity}</span>
-                              </div>
-                              <p className="text-sm text-muted-foreground mb-2">{issue.description}</p>
-                              <div className="bg-muted/50 rounded p-2">
-                                <p className="text-xs text-muted-foreground mb-1">Recommendation</p>
-                                <p className="text-sm">{issue.recommendation}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
                   {/* Overall Summary */}
                   <div className="border rounded-md p-4">
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
                       Summary
                     </h3>
-                    <div className="grid grid-cols-3 md:grid-cols-6 gap-4 text-center">
+                    <div className="grid grid-cols-3 md:grid-cols-5 gap-4 text-center">
                       <div>
                         <p className="text-xl font-semibold">{metrics.accuracy.testPassRate.toFixed(0)}%</p>
                         <p className="text-xs text-muted-foreground">Pass Rate</p>
-                      </div>
-                      <div>
-                        <p className="text-xl font-semibold">{metrics.promptAnalysis.overallScore}</p>
-                        <p className="text-xs text-muted-foreground">Prompt Score</p>
                       </div>
                       <div>
                         <p className="text-xl font-semibold">{metrics.userExperience.engagementScore}</p>
@@ -1389,13 +1300,13 @@ export default function TestRunDetailPage() {
             <div className="text-sm text-muted-foreground">Failed</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-blue-600">
+            <div className="text-3xl font-bold text-slate-700">
               {(status?.stats as { running?: number })?.running || 0}
             </div>
             <div className="text-sm text-muted-foreground">Running</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-yellow-600">
+            <div className="text-3xl font-bold text-slate-500">
               {status?.stats?.pending || 0}
             </div>
             <div className="text-sm text-muted-foreground">Pending</div>
@@ -1431,7 +1342,7 @@ export default function TestRunDetailPage() {
                   onClick={() => setSelectedBatch(batch)}
                   className={`bg-white dark:bg-gray-800 rounded-lg border p-5 cursor-pointer 
                     hover:shadow-lg hover:border-primary/50 transition-all group
-                    ${batchStatus === 'running' ? 'border-blue-300 bg-blue-50/50' : ''}
+                    ${batchStatus === 'running' ? 'border-slate-400 bg-slate-50/50' : ''}
                     ${batchStatus === 'passed' ? 'border-green-200' : ''}
                     ${batchStatus === 'failed' ? 'border-red-200' : ''}
                   `}
@@ -1440,11 +1351,11 @@ export default function TestRunDetailPage() {
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center
-                        ${batchStatus === 'running' ? 'bg-blue-100 text-blue-600' : ''}
+                        ${batchStatus === 'running' ? 'bg-slate-200 text-slate-600' : ''}
                         ${batchStatus === 'passed' ? 'bg-green-100 text-green-600' : ''}
                         ${batchStatus === 'failed' ? 'bg-red-100 text-red-600' : ''}
-                        ${batchStatus === 'mixed' ? 'bg-yellow-100 text-yellow-600' : ''}
-                        ${batchStatus === 'pending' ? 'bg-gray-100 text-gray-600' : ''}
+                        ${batchStatus === 'mixed' ? 'bg-slate-200 text-slate-600' : ''}
+                        ${batchStatus === 'pending' ? 'bg-slate-100 text-slate-600' : ''}
                       `}>
                         {batchStatus === 'running' ? (
                           <Loader2 className="h-5 w-5 animate-spin" />
@@ -1477,13 +1388,13 @@ export default function TestRunDetailPage() {
                       </div>
                     )}
                     {batch.runningCount > 0 && (
-                      <div className="flex items-center gap-1 text-blue-600 text-sm">
+                      <div className="flex items-center gap-1 text-slate-600 text-sm">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>{batch.runningCount}</span>
                       </div>
                     )}
                     {batch.pendingCount > 0 && (
-                      <div className="flex items-center gap-1 text-yellow-600 text-sm">
+                      <div className="flex items-center gap-1 text-slate-500 text-sm">
                         <Clock className="h-4 w-4" />
                         <span>{batch.pendingCount}</span>
                       </div>

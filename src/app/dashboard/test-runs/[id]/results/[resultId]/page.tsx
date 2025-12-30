@@ -5,16 +5,12 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft,
   ArrowRight,
-  Play,
-  Pause,
   Volume2,
   CheckCircle2,
   XCircle,
-  Clock,
   Loader2,
   RefreshCw,
   AlertTriangle,
@@ -28,6 +24,7 @@ import {
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
 
 interface ConversationTurn {
   role: "user" | "agent";
@@ -116,14 +113,14 @@ interface TestResultDetail {
 const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
-  pending: "bg-yellow-100 text-yellow-800",
+  pending: "bg-slate-100 text-slate-800",
 };
 
 function CircularProgress({ value, label, size = 100 }: { value: number; label: string; size?: number }) {
   const radius = (size - 10) / 2;
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (value / 100) * circumference;
-  const color = value >= 80 ? '#22c55e' : value >= 60 ? '#eab308' : '#ef4444';
+  const color = value >= 80 ? '#22c55e' : value >= 60 ? '#64748b' : '#ef4444';
   
   return (
     <div className="flex flex-col items-center">
@@ -158,7 +155,7 @@ function CircularProgress({ value, label, size = 100 }: { value: number; label: 
 }
 
 function MetricBar({ label, value }: { label: string; value: number }) {
-  const color = value >= 80 ? 'bg-green-500' : value >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+  const color = value >= 80 ? 'bg-green-500' : value >= 60 ? 'bg-slate-500' : 'bg-red-500';
   
   return (
     <div className="space-y-1">
@@ -175,7 +172,7 @@ function MetricBar({ label, value }: { label: string; value: number }) {
 
 export default function TestResultDetailPage() {
   const { getToken } = useAuth();
-  const router = useRouter();
+  useRouter();
   const params = useParams();
   const testRunId = params.id as string;
   const resultId = params.resultId as string;
@@ -185,9 +182,8 @@ export default function TestResultDetailPage() {
   const [error, setError] = useState<string | null>(null);
   
   // Audio player state
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [isPlaying] = useState(false);
+  const [, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const fetchResult = useCallback(async () => {
@@ -227,23 +223,9 @@ export default function TestResultDetailPage() {
     fetchResult();
   }, [fetchResult]);
 
-  // Audio controls
-  const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // Audio controls - keeping refs for potential future use
+  void isPlaying;
+  void audioRef;
 
   if (isLoading) {
     return (
@@ -358,7 +340,7 @@ export default function TestResultDetailPage() {
               {result.actualResponse && (
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Actual Response</label>
-                  <p className="mt-1 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800 whitespace-pre-wrap">
+                  <p className="mt-1 text-sm bg-slate-50 dark:bg-slate-900/20 p-3 rounded-lg border border-slate-200 dark:border-slate-800 whitespace-pre-wrap">
                     {result.actualResponse}
                   </p>
                 </div>
@@ -368,8 +350,8 @@ export default function TestResultDetailPage() {
 
           {/* Prompt Improvement Suggestions - Only show for failed tests */}
           {result.status === 'failed' && (
-            <div className="bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-200 dark:border-orange-800 p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-orange-900 dark:text-orange-100">
+            <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/20 dark:to-slate-800/20 rounded-lg border-2 border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-900 dark:text-slate-100">
                 <AlertTriangle className="h-5 w-5" />
                 Prompt Improvement Suggestions
               </h2>
@@ -379,50 +361,50 @@ export default function TestResultDetailPage() {
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
                   <h3 className="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">What Went Wrong</h3>
                   <p className="text-sm text-gray-700 dark:text-gray-300">
-                    The agent's response didn't match the expected outcome. Based on the test case expectations, the agent should have {result.expectedResponse}
+                    The agent&apos;s response didn&apos;t match the expected outcome. Based on the test case expectations, the agent should have {result.expectedResponse}
                   </p>
                 </div>
 
                 {/* Prompt modifications */}
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
-                  <h3 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3">Recommended Prompt Additions</h3>
+                  <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-3">Recommended Prompt Additions</h3>
                   <div className="space-y-3">
                     {/* Determine prompt suggestions based on category */}
                     {result.category === 'Off-topic Handling' && (
                       <>
-                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: 'I appreciate your question, but I'm specifically designed to help with [your purpose]. Let's get you back on track with [relevant topic].'&quot;
+                            &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: &apos;I appreciate your question, but I&apos;m specifically designed to help with [your purpose]. Let&apos;s get you back on track with [relevant topic].&apos;&quot;
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Conversation Guidelines section</p>
+                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Conversation Guidelines section</p>
                         </div>
-                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;Never engage with off-topic requests. Always acknowledge the user's question briefly, then redirect to relevant topics within your scope.&quot;
+                            &quot;Never engage with off-topic requests. Always acknowledge the user&apos;s question briefly, then redirect to relevant topics within your scope.&quot;
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Boundaries section</p>
+                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Boundaries section</p>
                         </div>
                       </>
                     )}
                     
                     {result.category === 'Budget Inquiry' && (
                       <>
-                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is '$5000', maintain the dollar sign and specific amount. Don't generalize or estimate unless specifically asked to do so.&quot;
+                            &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is &apos;$5000&apos;, maintain the dollar sign and specific amount. Don&apos;t generalize or estimate unless specifically asked to do so.&quot;
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Data Accuracy section</p>
+                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Data Accuracy section</p>
                         </div>
                       </>
                     )}
 
                     {result.category === 'User Requests Callback' && (
                       <>
-                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: 'I understand you'd like a callback. Let me collect your preferred contact details and time.'&quot;
+                            &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: &apos;I understand you&apos;d like a callback. Let me collect your preferred contact details and time.&apos;&quot;
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → Call Handling section</p>
+                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Call Handling section</p>
                         </div>
                       </>
                     )}
@@ -430,11 +412,11 @@ export default function TestResultDetailPage() {
                     {/* Generic fallback for other categories */}
                     {!['Off-topic Handling', 'Budget Inquiry', 'User Requests Callback'].includes(result.category) && (
                       <>
-                        <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-3 border-l-4 border-blue-500">
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;For {result.category} scenarios: Ensure you {result.expectedResponse.toLowerCase()}. Always prioritize accuracy and completeness in your responses.&quot;
                           </p>
-                          <p className="text-xs text-muted-foreground mt-2">📍 Add this to: System Instructions → {result.category} section</p>
+                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → {result.category} section</p>
                         </div>
                       </>
                     )}
@@ -510,63 +492,24 @@ export default function TestResultDetailPage() {
         {/* Transcript Tab */}
         <TabsContent value="transcript" className="mt-6 space-y-6">
           {/* Call Recording */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Volume2 className="h-5 w-5" />
-              Call Recording
-            </h2>
-            
-            {result.hasRecording && result.agentAudioUrl ? (
-              <div className="space-y-4">
-                <audio
-                  ref={audioRef}
-                  src={result.agentAudioUrl}
-                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                  onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-                  onEnded={() => setIsPlaying(false)}
-                />
-                
-                <div className="flex items-center gap-4">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={togglePlay}
-                    className="h-12 w-12 rounded-full"
-                  >
-                    {isPlaying ? (
-                      <Pause className="h-5 w-5" />
-                    ) : (
-                      <Play className="h-5 w-5 ml-0.5" />
-                    )}
-                  </Button>
-                  
-                  <div className="flex-1 space-y-1">
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all"
-                        style={{ width: `${(currentTime / duration) * 100 || 0}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{formatTime(currentTime)}</span>
-                      <span>{formatTime(duration)}</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {result.callId && (
-                  <p className="text-xs text-muted-foreground">
-                    Call ID: {result.callId}
-                  </p>
-                )}
-              </div>
-            ) : (
+          {result.hasRecording && result.agentAudioUrl ? (
+            <ModernAudioPlayer
+              src={result.agentAudioUrl}
+              conversationTurns={result.conversationTurns || []}
+              onTimeUpdate={(time) => setCurrentTime(time)}
+            />
+          ) : (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Volume2 className="h-5 w-5" />
+                Call Recording
+              </h2>
               <div className="text-center py-8 text-muted-foreground">
                 <Mic className="h-12 w-12 mx-auto mb-2 opacity-30" />
                 <p>No recording available for this test</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Conversation Transcript */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
@@ -592,8 +535,8 @@ export default function TestResultDetailPage() {
                     {/* Avatar */}
                     <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
                       turn.role === 'user' 
-                        ? 'bg-slate-700 text-white' 
-                        : 'bg-purple-600 text-white'
+                        ? 'bg-slate-800 text-white' 
+                        : 'bg-slate-500 text-white'
                     }`}>
                       {turn.role === 'user' ? (
                         <User className="h-5 w-5" />
@@ -606,7 +549,7 @@ export default function TestResultDetailPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-sm font-semibold ${
-                          turn.role === 'user' ? 'text-slate-700 dark:text-slate-300' : 'text-purple-600 dark:text-purple-400'
+                          turn.role === 'user' ? 'text-slate-700 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400'
                         }`}>
                           {turn.role === 'user' ? 'TEST CALLER' : 'AI AGENT'}
                         </span>
@@ -619,7 +562,7 @@ export default function TestResultDetailPage() {
                       <div className={`rounded-lg p-4 ${
                         turn.role === 'user'
                           ? 'bg-slate-100 dark:bg-slate-800'
-                          : 'bg-purple-50 dark:bg-purple-900/30'
+                          : 'bg-slate-50 dark:bg-slate-800/50'
                       }`}>
                         <p className="text-sm leading-relaxed">{turn.content}</p>
                       </div>
@@ -647,14 +590,14 @@ export default function TestResultDetailPage() {
                 )}
                 {result.agentTranscript && (
                   <div className="flex gap-3">
-                    <div className="h-10 w-10 rounded-full bg-purple-600 text-white flex items-center justify-center flex-shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-slate-500 text-white flex items-center justify-center flex-shrink-0">
                       <Bot className="h-5 w-5" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-semibold text-purple-600 dark:text-purple-400">AI AGENT</span>
+                        <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">AI AGENT</span>
                       </div>
-                      <div className="bg-purple-50 dark:bg-purple-900/30 rounded-lg p-4">
+                      <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
                         <p className="text-sm leading-relaxed">{result.agentTranscript}</p>
                       </div>
                     </div>
@@ -683,7 +626,7 @@ export default function TestResultDetailPage() {
               <div className="mt-4 text-center">
                 <p className={`text-sm font-medium ${
                   result.overallScore >= 80 ? 'text-green-600' :
-                  result.overallScore >= 60 ? 'text-yellow-600' : 'text-red-600'
+                  result.overallScore >= 60 ? 'text-slate-600' : 'text-red-600'
                 }`}>
                   {result.overallScore >= 80 ? 'Excellent' :
                    result.overallScore >= 60 ? 'Good' :

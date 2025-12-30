@@ -44,7 +44,7 @@ import { cn } from '@/lib/utils';
 
 const priorityColors: Record<string, string> = {
   high: 'bg-red-100 text-red-700 border-red-200',
-  medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  medium: 'bg-slate-100 text-slate-700 border-slate-200',
   low: 'bg-green-100 text-green-700 border-green-200',
 };
 
@@ -116,7 +116,7 @@ function CallNode({ id, data, selected }: NodeProps) {
       className={cn(
         'w-[280px] rounded-lg border-2 bg-card shadow-md transition-all duration-200',
         selected ? 'border-primary ring-2 ring-primary/20' : 'border-border',
-        isDragOver && 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-200'
+        isDragOver && 'border-slate-500 bg-slate-50/50 ring-2 ring-slate-200'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -301,13 +301,13 @@ function CallNode({ id, data, selected }: NodeProps) {
         type="source"
         position={Position.Right}
         id="concurrent"
-        className="w-3 h-3 !bg-blue-500 border-2 border-background"
+        className="w-3 h-3 !bg-slate-500 border-2 border-background"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="concurrent-target"
-        className="w-3 h-3 !bg-blue-500 border-2 border-background"
+        className="w-3 h-3 !bg-slate-500 border-2 border-background"
       />
 
       {/* Add Concurrent Node Button - positioned outside the node */}
@@ -318,13 +318,13 @@ function CallNode({ id, data, selected }: NodeProps) {
               <Button
                 variant="secondary"
                 size="icon"
-                className="h-7 w-7 rounded-full bg-blue-100 hover:bg-blue-200 border border-blue-300 shadow-sm"
+                className="h-7 w-7 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-300 shadow-sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   addConcurrentCallNode(id);
                 }}
               >
-                <Plus className="h-3.5 w-3.5 text-blue-600" />
+                <Plus className="h-3.5 w-3.5 text-slate-600" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
