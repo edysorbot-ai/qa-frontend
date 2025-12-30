@@ -1072,7 +1072,7 @@ export default function NewTestRunPage() {
                                 <SelectItem 
                                   key={n} 
                                   value={String(n)}
-                                  disabled={exceedsLimit}
+                                  disabled={exceedsLimit || false}
                                   className={exceedsLimit ? "text-muted-foreground" : ""}
                                 >
                                   {n}{exceedsLimit ? " (exceeds limit)" : ""}
