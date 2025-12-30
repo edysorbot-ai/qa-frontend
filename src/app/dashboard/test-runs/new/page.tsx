@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,18 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function NewTestRunPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
+      <NewTestRunContent />
+    </Suspense>
+  );
+}
+
+function NewTestRunContent() {
   const { getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
