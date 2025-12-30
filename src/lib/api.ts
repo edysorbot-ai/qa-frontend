@@ -26,6 +26,7 @@ export const api = {
       agents: (id: string) => `${API_BASE_URL}/api/integrations/${id}/agents`,
       agent: (id: string, agentId: string) => `${API_BASE_URL}/api/integrations/${id}/agents/${agentId}`,
       analyzeAgent: (id: string, agentId: string) => `${API_BASE_URL}/api/integrations/${id}/agents/${agentId}/analyze`,
+      limits: (id: string) => `${API_BASE_URL}/api/integrations/${id}/limits`,
     },
     
     // Agents
@@ -39,6 +40,7 @@ export const api = {
       analyzePrompt: (id: string) => `${API_BASE_URL}/api/agents/${id}/analyze-prompt`,
       dynamicVariables: (id: string) => `${API_BASE_URL}/api/agents/${id}/dynamic-variables`,
       knowledgeBase: (id: string) => `${API_BASE_URL}/api/agents/${id}/knowledge-base`,
+      knowledgeBaseDocumentContent: (id: string, documentId: string) => `${API_BASE_URL}/api/agents/${id}/knowledge-base/${documentId}/content`,
       testCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/test-cases`,
       workflow: (id: string) => `${API_BASE_URL}/api/agents/${id}/workflow`,
     },

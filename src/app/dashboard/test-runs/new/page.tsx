@@ -61,21 +61,21 @@ interface CallBatch {
 
 const priorityColors: Record<string, string> = {
   high: "bg-red-100 text-red-800",
-  medium: "bg-yellow-100 text-yellow-800",
+  medium: "bg-slate-200 text-slate-800",
   low: "bg-green-100 text-green-800",
 };
 
 const categoryColors: Record<string, string> = {
   "Happy Path": "bg-green-100 text-green-800",
-  "Edge Case": "bg-orange-100 text-orange-800",
+  "Edge Case": "bg-slate-200 text-slate-700",
   "Error Handling": "bg-red-100 text-red-800",
-  "Boundary Testing": "bg-purple-100 text-purple-800",
-  "Conversation Flow Testing": "bg-blue-100 text-blue-800",
-  "Tool/Function Testing": "bg-cyan-100 text-cyan-800",
-  "Off-Topic": "bg-gray-100 text-gray-800",
-  "Budget": "bg-yellow-100 text-yellow-800",
-  "Eligibility": "bg-indigo-100 text-indigo-800",
-  "Custom": "bg-pink-100 text-pink-800",
+  "Boundary Testing": "bg-slate-200 text-slate-700",
+  "Conversation Flow Testing": "bg-slate-200 text-slate-700",
+  "Tool/Function Testing": "bg-slate-200 text-slate-700",
+  "Off-Topic": "bg-slate-100 text-slate-700",
+  "Budget": "bg-slate-200 text-slate-700",
+  "Eligibility": "bg-slate-200 text-slate-700",
+  "Custom": "bg-slate-200 text-slate-700",
 };
 
 export default function NewTestRunPage() {
@@ -125,6 +125,14 @@ export default function NewTestRunPage() {
   const [batchingEnabled, setBatchingEnabled] = useState(true);
   const [concurrencyEnabled, setConcurrencyEnabled] = useState(false);
   const [concurrencyCount, setConcurrencyCount] = useState(3);
+  
+  // Provider limits state
+  const [providerLimits, setProviderLimits] = useState<{
+    concurrencyLimit: number;
+    source: string;
+    provider: string;
+  } | null>(null);
+  const [showConcurrencyWarning, setShowConcurrencyWarning] = useState(false);
 
   // Get unique categories from existing test cases
   const existingCategories = [...new Set(testCases.map(tc => tc.category))].filter(Boolean);
@@ -186,9 +194,32 @@ export default function NewTestRunPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      let agentData = null;
       if (agentResponse.ok) {
         const data = await agentResponse.json();
+        agentData = data.agent;
         setSelectedAgent(data.agent);
+        
+        // Fetch provider limits if integration_id is available
+        if (data.agent?.integration_id) {
+          try {
+            const limitsResponse = await fetch(
+              api.endpoints.integrations.limits(data.agent.integration_id),
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (limitsResponse.ok) {
+              const limitsData = await limitsResponse.json();
+              setProviderLimits(limitsData.limits);
+              // If current concurrency exceeds limit, adjust it
+              if (limitsData.limits?.concurrencyLimit && concurrencyCount > limitsData.limits.concurrencyLimit) {
+                setConcurrencyCount(limitsData.limits.concurrencyLimit);
+                setShowConcurrencyWarning(true);
+              }
+            }
+          } catch (e) {
+            console.error("Error fetching provider limits:", e);
+          }
+        }
       }
 
       // Fetch test cases for this agent
@@ -217,7 +248,7 @@ export default function NewTestRunPage() {
     } finally {
       setIsLoadingAgentDetails(false);
     }
-  }, [getToken]);
+  }, [getToken, concurrencyCount]);
 
   // Fetch agent details when selection changes
   useEffect(() => {
@@ -1003,6 +1034,11 @@ export default function NewTestRunPage() {
                           ? `Run ${concurrencyCount} calls in parallel` 
                           : "Run calls sequentially"}
                       </p>
+                      {providerLimits && (
+                        <p className="text-xs text-slate-600">
+                          Provider limit: {providerLimits.concurrencyLimit} concurrent calls
+                        </p>
+                      )}
                     </div>
                     <Switch
                       checked={concurrencyEnabled}
@@ -1010,21 +1046,48 @@ export default function NewTestRunPage() {
                     />
                   </div>
                   {concurrencyEnabled && (
-                    <div className="flex items-center gap-2 pt-2">
-                      <Label className="text-xs text-muted-foreground">Parallel calls:</Label>
-                      <Select
-                        value={String(concurrencyCount)}
-                        onValueChange={(v) => setConcurrencyCount(Number(v))}
-                      >
-                        <SelectTrigger className="w-20 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[2, 3, 4, 5, 6, 8, 10].map((n) => (
-                            <SelectItem key={n} value={String(n)}>{n}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground">Parallel calls:</Label>
+                        <Select
+                          value={String(concurrencyCount)}
+                          onValueChange={(v) => {
+                            const newValue = Number(v);
+                            if (providerLimits && newValue > providerLimits.concurrencyLimit) {
+                              setShowConcurrencyWarning(true);
+                              setConcurrencyCount(providerLimits.concurrencyLimit);
+                            } else {
+                              setShowConcurrencyWarning(false);
+                              setConcurrencyCount(newValue);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-20 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[2, 3, 4, 5, 6, 8, 10].map((n) => {
+                              const exceedsLimit = providerLimits && n > providerLimits.concurrencyLimit;
+                              return (
+                                <SelectItem 
+                                  key={n} 
+                                  value={String(n)}
+                                  disabled={exceedsLimit}
+                                  className={exceedsLimit ? "text-muted-foreground" : ""}
+                                >
+                                  {n}{exceedsLimit ? " (exceeds limit)" : ""}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {showConcurrencyWarning && providerLimits && (
+                        <div className="p-2 bg-slate-100 border border-slate-300 rounded text-xs text-slate-700">
+                          Your {providerLimits.provider} account has a limit of {providerLimits.concurrencyLimit} concurrent calls. 
+                          Concurrency has been adjusted automatically.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1035,14 +1098,14 @@ export default function NewTestRunPage() {
                   <div className="mt-2 space-y-1 text-sm">
                     <p><span className="text-muted-foreground">Selected Test Cases:</span> {selectedTestCaseIds.size}</p>
                     <p><span className="text-muted-foreground">Categories:</span> {new Set(selectedTestCases.map(tc => tc.category)).size}</p>
-                    <p className={`font-medium ${batchingEnabled ? 'text-green-600' : 'text-blue-600'}`}>
+                    <p className={`font-medium ${batchingEnabled ? 'text-green-600' : 'text-slate-700'}`}>
                       <span className="text-muted-foreground">Estimated Calls:</span>{' '}
                       {batchingEnabled 
                         ? `~${new Set(selectedTestCases.map(tc => tc.category)).size} calls (batched)`
                         : `${selectedTestCaseIds.size} calls (individual)`}
                     </p>
                     {concurrencyEnabled && (
-                      <p className="text-purple-600 font-medium">
+                      <p className="text-slate-700 font-medium">
                         <span className="text-muted-foreground">Execution:</span>{' '}
                         {concurrencyCount} parallel • ~{Math.ceil(
                           (batchingEnabled 
@@ -1100,8 +1163,8 @@ export default function NewTestRunPage() {
           {/* Summary Stats */}
           <div className="flex gap-6 pb-4 border-b">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Phone className="h-5 w-5 text-blue-600" />
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Phone className="h-5 w-5 text-slate-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{callBatches.length}</p>
@@ -1110,8 +1173,8 @@ export default function NewTestRunPage() {
             </div>
             {concurrencyEnabled && (
               <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <Layers className="h-5 w-5 text-purple-600" />
+                <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                  <Layers className="h-5 w-5 text-slate-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{concurrencyCount}</p>
@@ -1120,8 +1183,8 @@ export default function NewTestRunPage() {
               </div>
             )}
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <Layers className="h-5 w-5 text-green-600" />
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Layers className="h-5 w-5 text-slate-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{callBatches.reduce((sum, b) => sum + b.testCases.length, 0)}</p>
@@ -1129,8 +1192,8 @@ export default function NewTestRunPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <PlayCircle className="h-5 w-5 text-purple-600" />
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <PlayCircle className="h-5 w-5 text-slate-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold">~{callBatches.length * 2}min</p>

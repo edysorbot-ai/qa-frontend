@@ -79,10 +79,10 @@ const providerNames: Record<Provider, string> = {
 };
 
 const providerColors: Record<Provider, string> = {
-  elevenlabs: "bg-purple-100 text-purple-800",
-  retell: "bg-blue-100 text-blue-800",
-  vapi: "bg-green-100 text-green-800",
-  openai_realtime: "bg-orange-100 text-orange-800",
+  elevenlabs: "bg-slate-100 text-slate-800",
+  retell: "bg-slate-100 text-slate-800",
+  vapi: "bg-slate-100 text-slate-800",
+  openai_realtime: "bg-slate-100 text-slate-800",
 };
 
 export default function AgentsPage() {
@@ -460,7 +460,7 @@ export default function AgentsPage() {
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : connectedIntegrations.length === 0 ? (
-                <div className="flex items-center gap-2 p-4 bg-yellow-50 rounded-lg text-yellow-800">
+                <div className="flex items-center gap-2 p-4 bg-slate-100 rounded-lg text-slate-700">
                   <AlertCircle className="h-5 w-5" />
                   <span className="text-sm">
                     No integrations connected. Please add an integration in

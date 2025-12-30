@@ -33,11 +33,12 @@ const providers: ProviderConfig[] = [
     name: "VAPI",
     description: "Connect your VAPI voice agents",
   },
-  {
-    key: "openai_realtime",
-    name: "OpenAI Realtime",
-    description: "Connect OpenAI Realtime voice API",
-  },
+  // OpenAI Realtime is hidden until WebSocket caller implementation is complete
+  // {
+  //   key: "openai_realtime",
+  //   name: "OpenAI Realtime",
+  //   description: "Connect OpenAI Realtime voice API",
+  // },
 ];
 
 interface Integration {
