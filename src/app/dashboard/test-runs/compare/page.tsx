@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -88,6 +88,18 @@ interface TestRun {
 }
 
 export default function CompareTestRunsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
+      <CompareTestRunsContent />
+    </Suspense>
+  );
+}
+
+function CompareTestRunsContent() {
   const { getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
