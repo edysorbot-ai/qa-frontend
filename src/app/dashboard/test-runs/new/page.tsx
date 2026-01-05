@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,12 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2 } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { format } from "date-fns";
 import { api } from "@/lib/api";
 import Link from "next/link";
 
@@ -50,6 +55,7 @@ interface TestCase {
   keyTopic?: string;
   expectedOutcome: string;
   priority: "high" | "medium" | "low";
+  test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
 }
 
 interface CallBatch {
@@ -57,28 +63,47 @@ interface CallBatch {
   name: string;
   testCases: TestCase[];
   estimatedDuration: string;
+  // AI-powered intelligent batching metadata
+  reasoning?: string;
+  conversationFlow?: string;
+  callEndingTestCase?: string;
+  confidenceScore?: number;
+  testMode?: 'voice' | 'chat';  // Testing mode for this batch
+  testModeReason?: string;
+  estimatedCostSavings?: string;
+  fallbackPaths?: Array<{
+    ifTestCaseFails: string;
+    action: string;
+    alternativeTestCases?: string[];
+  }>;
 }
 
 const priorityColors: Record<string, string> = {
-  high: "bg-red-100 text-red-800",
-  medium: "bg-slate-200 text-slate-800",
-  low: "bg-green-100 text-green-800",
+  high: "bg-slate-800 text-white",
+  medium: "bg-slate-500 text-white",
+  low: "bg-slate-300 text-slate-800",
 };
 
 const categoryColors: Record<string, string> = {
-  "Happy Path": "bg-green-100 text-green-800",
-  "Edge Case": "bg-slate-200 text-slate-700",
-  "Error Handling": "bg-red-100 text-red-800",
-  "Boundary Testing": "bg-slate-200 text-slate-700",
-  "Conversation Flow Testing": "bg-slate-200 text-slate-700",
-  "Tool/Function Testing": "bg-slate-200 text-slate-700",
+  "Happy Path": "bg-slate-200 text-slate-800",
+  "Edge Case": "bg-slate-300 text-slate-800",
+  "Error Handling": "bg-slate-400 text-slate-900",
+  "Boundary Testing": "bg-slate-200 text-slate-800",
+  "Conversation Flow Testing": "bg-slate-200 text-slate-800",
+  "Tool/Function Testing": "bg-slate-300 text-slate-800",
   "Off-Topic": "bg-slate-100 text-slate-700",
-  "Budget": "bg-slate-200 text-slate-700",
-  "Eligibility": "bg-slate-200 text-slate-700",
-  "Custom": "bg-slate-200 text-slate-700",
+  "Budget": "bg-slate-200 text-slate-800",
+  "Eligibility": "bg-slate-200 text-slate-800",
+  "Custom": "bg-slate-200 text-slate-800",
 };
 
-export default function NewTestRunPage() {
+// Test mode styling
+const testModeStyles: Record<string, { bg: string; text: string; icon: string }> = {
+  chat: { bg: "bg-slate-100", text: "text-slate-700", icon: "💬" },
+  voice: { bg: "bg-slate-200", text: "text-slate-800", icon: "🎤" },
+};
+
+function NewTestRunContent() {
   const { getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -133,6 +158,37 @@ export default function NewTestRunPage() {
     provider: string;
   } | null>(null);
   const [showConcurrencyWarning, setShowConcurrencyWarning] = useState(false);
+
+  // Schedule dialog state
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [scheduleType, setScheduleType] = useState<"once" | "daily" | "weekly">("once");
+  const [scheduleName, setScheduleName] = useState("");
+  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleDays, setScheduleDays] = useState<number[]>([]);
+  const [isScheduling, setIsScheduling] = useState(false);
+
+  // Helper to get minimum allowed time (30 min from now)
+  const getMinTime = (selectedDate?: Date) => {
+    const now = new Date();
+    const isToday = selectedDate && 
+      selectedDate.getDate() === now.getDate() &&
+      selectedDate.getMonth() === now.getMonth() &&
+      selectedDate.getFullYear() === now.getFullYear();
+    
+    if (isToday) {
+      const minTime = new Date(now.getTime() + 30 * 60 * 1000);
+      return `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
+    }
+    return "00:00";
+  };
+
+  // Get default time (30 min from now)
+  const getDefaultTime = () => {
+    const now = new Date();
+    const defaultTime = new Date(now.getTime() + 30 * 60 * 1000);
+    return `${String(defaultTime.getHours()).padStart(2, '0')}:${String(defaultTime.getMinutes()).padStart(2, '0')}`;
+  };
 
   // Get unique categories from existing test cases
   const existingCategories = [...new Set(testCases.map(tc => tc.category))].filter(Boolean);
@@ -380,8 +436,15 @@ export default function NewTestRunPage() {
     });
   };
 
-  // Create batches from selected test cases - group by category or individual
-  const createBatches = (): CallBatch[] => {
+  // State for intelligent batching
+  const [isAnalyzingBatches, setIsAnalyzingBatches] = useState(false);
+  const [batchAnalysis, setBatchAnalysis] = useState<{
+    promptAnalysis?: any;
+    testCaseAnalyses?: any[];
+  } | null>(null);
+
+  // Create batches using AI-powered intelligent batching
+  const createIntelligentBatches = async (): Promise<CallBatch[]> => {
     const casesToBatch = selectedTestCases;
     
     if (!batchingEnabled) {
@@ -394,7 +457,86 @@ export default function NewTestRunPage() {
       }));
     }
     
-    // Group test cases by keyTopic (more accurate than category) - each topic = ONE call
+    // Use AI-powered intelligent batching
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+
+      // Get agent prompt for intelligent analysis
+      const agentPrompt = selectedAgent?.prompt || "";
+      const agentFirstMessage = selectedAgent?.config?.firstMessage || 
+                                selectedAgent?.config?.first_message || 
+                                selectedAgent?.config?.greeting || "";
+
+      console.log("[IntelligentBatching] Sending to API:", {
+        testCasesCount: casesToBatch.length,
+        hasPrompt: !!agentPrompt,
+        hasFirstMessage: !!agentFirstMessage,
+      });
+
+      const response = await fetch(api.endpoints.testExecution.analyzeForBatching, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testCases: casesToBatch.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            scenario: tc.scenario,
+            userInput: tc.scenario,
+            expectedBehavior: tc.expectedOutcome,
+            expectedOutcome: tc.expectedOutcome,
+            category: tc.category,
+            keyTopic: tc.keyTopic,
+            priority: tc.priority,
+            testMode: tc.test_mode || 'auto', // Pass explicit test mode if set
+          })),
+          agentPrompt,
+          agentFirstMessage,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze batches");
+      }
+
+      const data = await response.json();
+      console.log("[IntelligentBatching] Response:", data);
+
+      if (data.success && data.batches) {
+        // Store analysis for display
+        if (data.analysis) {
+          setBatchAnalysis(data.analysis);
+        }
+
+        // Convert API response to CallBatch format
+        return data.batches.map((batch: any, index: number) => ({
+          id: batch.batchId?.toString() || `batch-${index + 1}`,
+          name: batch.name || `Batch ${index + 1}`,
+          testCases: batch.testCases || batch.testCaseIds?.map((id: string) => 
+            casesToBatch.find(tc => tc.id === id)
+          ).filter(Boolean) || [],
+          estimatedDuration: batch.estimatedDuration || `~${(batch.testCases?.length || 1) * 30} sec`,
+          // Additional intelligent batching metadata
+          reasoning: batch.reasoning,
+          conversationFlow: batch.conversationFlow,
+          callEndingTestCase: batch.callEndingTestCase,
+          confidenceScore: batch.confidenceScore,
+          testMode: batch.testMode || 'voice',
+          testModeReason: batch.testModeReason,
+          estimatedCostSavings: batch.estimatedCostSavings,
+          fallbackPaths: batch.fallbackPaths,
+        }));
+      }
+    } catch (error) {
+      console.error("[IntelligentBatching] Error:", error);
+      // Fall through to simple batching
+    }
+    
+    // Fallback: Simple topic-based batching if AI fails
+    console.log("[IntelligentBatching] Falling back to simple batching");
     const topicGroups = new Map<string, TestCase[]>();
     casesToBatch.forEach((tc) => {
       const topic = tc.keyTopic || tc.category || "General";
@@ -418,10 +560,19 @@ export default function NewTestRunPage() {
     return batches;
   };
 
-  const handlePlanBatches = () => {
-    const batches = createBatches();
-    setCallBatches(batches);
-    setShowBatchModal(true);
+  const handlePlanBatches = async () => {
+    setIsAnalyzingBatches(true);
+    setBatchAnalysis(null);
+    try {
+      const batches = await createIntelligentBatches();
+      setCallBatches(batches);
+      setShowBatchModal(true);
+    } catch (error) {
+      console.error("Failed to create batches:", error);
+      setError("Failed to analyze test cases for batching");
+    } finally {
+      setIsAnalyzingBatches(false);
+    }
   };
 
   const moveTestCase = (testCaseId: string, fromBatchId: string, toBatchId: string) => {
@@ -469,6 +620,7 @@ export default function NewTestRunPage() {
       const formattedBatches = callBatches.map(batch => ({
         id: batch.id,
         name: batch.name,
+        testMode: batch.testMode || 'voice',  // Include testMode for voice vs chat routing
         testCases: batch.testCases.map(tc => ({
           id: tc.id,
           name: tc.name,
@@ -513,6 +665,101 @@ export default function NewTestRunPage() {
       setIsStartingTests(false);
       setShowBatchModal(false);
     }
+  };
+
+  // Handle scheduling a test run
+  const handleScheduleTest = async () => {
+    if (callBatches.length === 0 || !selectedAgent) return;
+
+    // Validate schedule data
+    if (!scheduleName.trim()) {
+      setError("Please enter a name for the scheduled test");
+      return;
+    }
+    if (scheduleType === "once" && !scheduleDate) {
+      setError("Please select a date for the scheduled test");
+      return;
+    }
+    if (scheduleType === "weekly" && scheduleDays.length === 0) {
+      setError("Please select at least one day for the weekly schedule");
+      return;
+    }
+
+    setIsScheduling(true);
+    setError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const formattedBatches = callBatches.map(batch => ({
+        id: batch.id,
+        name: batch.name,
+        testMode: batch.testMode || 'voice',
+        testCases: batch.testCases.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          scenario: tc.scenario,
+          expectedOutcome: tc.expectedOutcome,
+          category: tc.category,
+        })),
+      }));
+
+      const scheduleData: any = {
+        name: scheduleName,
+        agentId: selectedAgent.id,
+        agentName: selectedAgent.name,
+        provider: selectedAgent.provider,
+        integrationId: selectedAgent.integration_id,
+        externalAgentId: selectedAgent.external_agent_id,
+        batches: formattedBatches,
+        scheduleType: scheduleType,
+        scheduledTime: scheduleTime,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        enableBatching: batchingEnabled,
+        enableConcurrency: concurrencyEnabled,
+        concurrencyCount: concurrencyEnabled ? concurrencyCount : 1,
+      };
+
+      if (scheduleType === "once" && scheduleDate) {
+        scheduleData.scheduledDate = format(scheduleDate, "yyyy-MM-dd");
+      }
+      if (scheduleType === "weekly") {
+        scheduleData.scheduledDays = scheduleDays;
+      }
+
+      const response = await fetch(api.endpoints.scheduledTests.create, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(scheduleData),
+      });
+
+      if (response.ok) {
+        router.push("/dashboard/scheduled-tests");
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to schedule test");
+      }
+    } catch (error) {
+      console.error("Error scheduling test:", error);
+      setError(`Failed to schedule test: ${error instanceof Error ? error.message : 'Network error'}`);
+    } finally {
+      setIsScheduling(false);
+      setShowScheduleDialog(false);
+      setShowBatchModal(false);
+    }
+  };
+
+  // Toggle day selection for weekly schedule
+  const toggleScheduleDay = (day: number) => {
+    setScheduleDays(prev => 
+      prev.includes(day) 
+        ? prev.filter(d => d !== day) 
+        : [...prev, day].sort()
+    );
   };
 
   // Extract config values for display
@@ -1127,10 +1374,19 @@ export default function NewTestRunPage() {
               <Button
                 size="lg"
                 onClick={handlePlanBatches}
-                disabled={selectedTestCaseIds.size === 0 || isStartingTests}
+                disabled={selectedTestCaseIds.size === 0 || isStartingTests || isAnalyzingBatches}
               >
-                <Layers className="mr-2 h-5 w-5" />
-                Plan Call Batches & Run
+                {isAnalyzingBatches ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    AI Analyzing Batches...
+                  </>
+                ) : (
+                  <>
+                    <Layers className="mr-2 h-5 w-5" />
+                    Plan Call Batches & Run
+                  </>
+                )}
               </Button>
             </div>
           )}
@@ -1142,7 +1398,7 @@ export default function NewTestRunPage() {
         <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] p-6" style={{ maxWidth: '95vw', width: '95vw' }}>
           <DialogHeader className="pb-4">
             <DialogTitle className="text-xl font-bold">
-              {batchingEnabled ? "Call Batch Planning" : "Individual Call Planning"}
+              {batchingEnabled ? "AI-Optimized Call Batches" : "Individual Call Planning"}
             </DialogTitle>
             <DialogDescription>
               {batchingEnabled ? (
@@ -1161,151 +1417,285 @@ export default function NewTestRunPage() {
           </DialogHeader>
 
           {/* Summary Stats */}
-          <div className="flex gap-6 pb-4 border-b">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Phone className="h-5 w-5 text-slate-600" />
+          {(() => {
+            const voiceBatches = callBatches.filter(b => b.testMode !== 'chat');
+            const chatBatches = callBatches.filter(b => b.testMode === 'chat');
+            const voiceTestCases = voiceBatches.reduce((sum, b) => sum + b.testCases.length, 0);
+            const chatTestCases = chatBatches.reduce((sum, b) => sum + b.testCases.length, 0);
+            
+            return (
+              <div className="grid grid-cols-6 gap-4 pb-4 border-b">
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-800">{voiceBatches.length}</p>
+                  <p className="text-xs text-slate-500 mt-1">Voice</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-800">{chatBatches.length}</p>
+                  <p className="text-xs text-slate-500 mt-1">Chat</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-800">{callBatches.reduce((sum, b) => sum + b.testCases.length, 0)}</p>
+                  <p className="text-xs text-slate-500 mt-1">Tests</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-800">~{Math.round(voiceBatches.length * 2 + chatBatches.length * 0.5)}m</p>
+                  <p className="text-xs text-slate-500 mt-1">Duration</p>
+                </div>
+                {concurrencyEnabled && (
+                  <div className="text-center p-3 bg-slate-50 rounded-lg">
+                    <p className="text-2xl font-bold text-slate-800">{concurrencyCount}x</p>
+                    <p className="text-xs text-slate-500 mt-1">Parallel</p>
+                  </div>
+                )}
+                <div className="text-center p-3 bg-slate-50 rounded-lg col-span-{concurrencyEnabled ? 1 : 2}">
+                  <p className="text-2xl font-bold text-slate-800">{selectedTestCaseIds.size - callBatches.length}</p>
+                  <p className="text-xs text-slate-500 mt-1">Calls Saved</p>
+                </div>
               </div>
+            );
+          })()}
+
+          {/* Calls Table - Separated by Test Mode */}
+          <div className="overflow-auto max-h-[55vh] space-y-4">
+            {/* Voice Batches Section */}
+            {callBatches.filter(b => b.testMode !== 'chat').length > 0 && (
               <div>
-                <p className="text-2xl font-bold">{callBatches.length}</p>
-                <p className="text-xs text-muted-foreground">Voice Calls</p>
-              </div>
-            </div>
-            {concurrencyEnabled && (
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <Layers className="h-5 w-5 text-slate-600" />
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <h3 className="text-sm font-medium text-slate-600 uppercase tracking-wide">Voice Batches</h3>
+                  <span className="text-xs text-slate-400">({callBatches.filter(b => b.testMode !== 'chat').length})</span>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{concurrencyCount}</p>
-                  <p className="text-xs text-muted-foreground">Parallel</p>
-                </div>
+                <table className="w-full">
+                  <thead className="bg-slate-100 sticky top-0">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-sm w-16 text-slate-600">#</th>
+                      <th className="text-left px-4 py-2 font-medium text-sm w-64 text-slate-600">Batch Info</th>
+                      <th className="text-left px-4 py-2 font-medium text-sm text-slate-600">Test Cases (Ordered for Natural Conversation)</th>
+                      <th className="text-right px-4 py-2 font-medium text-sm w-20 text-slate-600">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {callBatches.filter(b => b.testMode !== 'chat').map((batch, batchIndex) => (
+                      <tr 
+                        key={batch.id} 
+                        className={`transition-colors ${
+                          dragOverBatchId === batch.id && draggedTestCase?.fromBatchId !== batch.id
+                            ? 'bg-slate-200 ring-2 ring-slate-400 ring-inset'
+                            : 'hover:bg-slate-50'
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                            setDragOverBatchId(batch.id);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setDragOverBatchId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                            moveTestCase(draggedTestCase.testCase.id, draggedTestCase.fromBatchId, batch.id);
+                          }
+                          setDraggedTestCase(null);
+                          setDragOverBatchId(null);
+                        }}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-sm">
+                            {batchIndex + 1}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm text-slate-800">{batch.name}</span>
+                              <span className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-slate-200 text-slate-600 rounded">
+                                Voice
+                              </span>
+                            </div>
+                            {batch.reasoning && (
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                {batch.reasoning}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {batch.testCases.map((tc, tcIndex) => (
+                              <div
+                                key={tc.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  setDraggedTestCase({ testCase: tc, fromBatchId: batch.id });
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', tc.id);
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedTestCase(null);
+                                  setDragOverBatchId(null);
+                                }}
+                                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border text-xs group cursor-grab active:cursor-grabbing transition-all bg-white border-slate-200 ${
+                                  draggedTestCase?.testCase.id === tc.id ? 'opacity-50 scale-95' : 'hover:border-slate-300 hover:shadow-sm'
+                                }`}
+                                title={tc.scenario}
+                              >
+                                <span className="text-slate-400 tabular-nums text-[10px]">{tcIndex + 1}</span>
+                                <span className="max-w-[160px] truncate text-slate-600">{tc.name}</span>
+                                <button
+                                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeFromBatch(tc.id, batch.id);
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm font-semibold text-slate-700">{batch.testCases.length}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Layers className="h-5 w-5 text-slate-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{callBatches.reduce((sum, b) => sum + b.testCases.length, 0)}</p>
-                <p className="text-xs text-muted-foreground">Test Cases</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-                <PlayCircle className="h-5 w-5 text-slate-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">~{callBatches.length * 2}min</p>
-                <p className="text-xs text-muted-foreground">Est. Duration</p>
-              </div>
-            </div>
-            <div className="ml-auto flex items-center">
-              <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50">
-                Saving {selectedTestCaseIds.size - callBatches.length} calls vs single-test mode
-              </Badge>
-            </div>
-          </div>
 
-          {/* Calls Table */}
-          <div className="overflow-auto max-h-[55vh]">
-            <table className="w-full">
-              <thead className="bg-muted sticky top-0">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-sm w-16">Call</th>
-                  <th className="text-left px-4 py-3 font-medium text-sm w-48">Category</th>
-                  <th className="text-left px-4 py-3 font-medium text-sm">Test Cases</th>
-                  <th className="text-right px-4 py-3 font-medium text-sm w-20">Count</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {callBatches.map((batch, batchIndex) => (
-                  <tr 
-                    key={batch.id} 
-                    className={`transition-colors ${
-                      dragOverBatchId === batch.id && draggedTestCase?.fromBatchId !== batch.id
-                        ? 'bg-primary/10 ring-2 ring-primary ring-inset'
-                        : 'hover:bg-muted/50'
-                    }`}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
-                        setDragOverBatchId(batch.id);
-                      }
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setDragOverBatchId(null);
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
-                        moveTestCase(draggedTestCase.testCase.id, draggedTestCase.fromBatchId, batch.id);
-                      }
-                      setDraggedTestCase(null);
-                      setDragOverBatchId(null);
-                    }}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm">
-                        {batchIndex + 1}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge className={categoryColors[batch.name] || "bg-gray-100 text-gray-800"}>
-                        {batch.name}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {batch.testCases.map((tc, tcIndex) => (
-                          <div
-                            key={tc.id}
-                            draggable
-                            onDragStart={(e) => {
-                              setDraggedTestCase({ testCase: tc, fromBatchId: batch.id });
-                              e.dataTransfer.effectAllowed = 'move';
-                              e.dataTransfer.setData('text/plain', tc.id);
-                            }}
-                            onDragEnd={() => {
-                              setDraggedTestCase(null);
-                              setDragOverBatchId(null);
-                            }}
-                            className={`inline-flex items-center gap-1 px-2 py-1 bg-muted rounded text-xs group cursor-grab active:cursor-grabbing transition-all ${
-                              draggedTestCase?.testCase.id === tc.id ? 'opacity-50 scale-95' : 'hover:bg-muted/80 hover:shadow-sm'
-                            }`}
-                          >
-                            <GripVertical className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 mr-0.5" />
-                            <span className="text-muted-foreground">{tcIndex + 1}.</span>
-                            <span className="max-w-[200px] truncate">{tc.name}</span>
-                            <button
-                              className="ml-1 opacity-0 group-hover:opacity-100 hover:text-red-500"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeFromBatch(tc.id, batch.id);
-                              }}
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
+            {/* Chat Batches Section */}
+            {callBatches.filter(b => b.testMode === 'chat').length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <h3 className="text-sm font-medium text-slate-600 uppercase tracking-wide">Chat Batches</h3>
+                  <span className="text-xs text-slate-400">({callBatches.filter(b => b.testMode === 'chat').length})</span>
+                </div>
+                <table className="w-full">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-sm w-16 text-slate-500">#</th>
+                      <th className="text-left px-4 py-2 font-medium text-sm w-64 text-slate-500">Batch Info</th>
+                      <th className="text-left px-4 py-2 font-medium text-sm text-slate-500">Test Cases (Ordered)</th>
+                      <th className="text-right px-4 py-2 font-medium text-sm w-20 text-slate-500">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {callBatches.filter(b => b.testMode === 'chat').map((batch, batchIndex) => (
+                      <tr 
+                        key={batch.id} 
+                        className={`transition-colors ${
+                          dragOverBatchId === batch.id && draggedTestCase?.fromBatchId !== batch.id
+                            ? 'bg-slate-100 ring-2 ring-slate-300 ring-inset'
+                            : 'hover:bg-slate-50/50'
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                            setDragOverBatchId(batch.id);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setDragOverBatchId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedTestCase && draggedTestCase.fromBatchId !== batch.id) {
+                            moveTestCase(draggedTestCase.testCase.id, draggedTestCase.fromBatchId, batch.id);
+                          }
+                          setDraggedTestCase(null);
+                          setDragOverBatchId(null);
+                        }}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-400 text-white flex items-center justify-center font-bold text-sm">
+                            {batchIndex + 1}
                           </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-medium">{batch.testCases.length}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm text-slate-700">{batch.name}</span>
+                              <span className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-slate-100 text-slate-500 rounded">
+                                Chat
+                              </span>
+                            </div>
+                            {batch.reasoning && (
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                {batch.reasoning}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {batch.testCases.map((tc, tcIndex) => (
+                              <div
+                                key={tc.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  setDraggedTestCase({ testCase: tc, fromBatchId: batch.id });
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', tc.id);
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedTestCase(null);
+                                  setDragOverBatchId(null);
+                                }}
+                                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border text-xs group cursor-grab active:cursor-grabbing transition-all bg-white border-slate-200 ${
+                                  draggedTestCase?.testCase.id === tc.id ? 'opacity-50 scale-95' : 'hover:border-slate-300 hover:shadow-sm'
+                                }`}
+                                title={tc.scenario}
+                              >
+                                <span className="text-slate-400 tabular-nums text-[10px]">{tcIndex + 1}</span>
+                                <span className="max-w-[160px] truncate text-slate-600">{tc.name}</span>
+                                <button
+                                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeFromBatch(tc.id, batch.id);
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm font-semibold text-slate-600">{batch.testCases.length}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setShowBatchModal(false)}>
               Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setScheduleName(`${selectedAgent?.name} - Scheduled Test`);
+                setScheduleTime(getDefaultTime());
+                setShowScheduleDialog(true);
+              }}
+              disabled={callBatches.length === 0}
+            >
+              <CalendarClock className="mr-2 h-4 w-4" />
+              Schedule
             </Button>
             <Button
               onClick={handleStartBatchedTests}
@@ -1318,6 +1708,191 @@ export default function NewTestRunPage() {
                 <PlayCircle className="mr-2 h-4 w-4" />
               )}
               Start {callBatches.length} Batched Calls
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule Test Dialog */}
+      <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              Schedule Test Run
+            </DialogTitle>
+            <DialogDescription>
+              Schedule this test to run automatically at a specific time
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Schedule Name */}
+            <div className="space-y-2">
+              <Label htmlFor="schedule-name">Schedule Name</Label>
+              <Input
+                id="schedule-name"
+                value={scheduleName}
+                onChange={(e) => setScheduleName(e.target.value)}
+                placeholder="Enter a name for this scheduled test"
+              />
+            </div>
+
+            {/* Schedule Type Tabs */}
+            <Tabs value={scheduleType} onValueChange={(v) => setScheduleType(v as any)}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="once" className="flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4" />
+                  Once
+                </TabsTrigger>
+                <TabsTrigger value="daily" className="flex items-center gap-1.5">
+                  <RefreshCw className="h-4 w-4" />
+                  Daily
+                </TabsTrigger>
+                <TabsTrigger value="weekly" className="flex items-center gap-1.5">
+                  <CalendarClock className="h-4 w-4" />
+                  Weekly
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Once - Date & Time */}
+              <TabsContent value="once" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label>Select Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        <Calendar className="mr-2 h-4 w-4" />
+                        {scheduleDate ? format(scheduleDate, "PPP") : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="single"
+                        selected={scheduleDate}
+                        onSelect={(date) => {
+                          setScheduleDate(date);
+                          // Reset time if selecting today and current time is before min time
+                          if (date) {
+                            const minTime = getMinTime(date);
+                            if (scheduleTime < minTime) {
+                              setScheduleTime(minTime);
+                            }
+                          }
+                        }}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          return date < today;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="time-once">Time {scheduleDate && getMinTime(scheduleDate) !== "00:00" && <span className="text-muted-foreground">(min: {getMinTime(scheduleDate)})</span>}</Label>
+                  <Input
+                    id="time-once"
+                    type="time"
+                    value={scheduleTime}
+                    min={getMinTime(scheduleDate)}
+                    onChange={(e) => {
+                      const minTime = getMinTime(scheduleDate);
+                      if (e.target.value >= minTime) {
+                        setScheduleTime(e.target.value);
+                      } else {
+                        setScheduleTime(minTime);
+                      }
+                    }}
+                  />
+                </div>
+              </TabsContent>
+
+              {/* Daily - Time only */}
+              <TabsContent value="daily" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="time-daily">Run daily at</Label>
+                  <Input
+                    id="time-daily"
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  This test will run every day at the specified time in your local timezone.
+                </p>
+              </TabsContent>
+
+              {/* Weekly - Days & Time */}
+              <TabsContent value="weekly" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label>Select Days</Label>
+                  <div className="grid grid-cols-7 gap-2">
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => (
+                      <div
+                        key={day}
+                        className={`flex flex-col items-center justify-center p-2 rounded-lg border cursor-pointer transition-colors ${
+                          scheduleDays.includes(index)
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "hover:bg-muted"
+                        }`}
+                        onClick={() => toggleScheduleDay(index)}
+                      >
+                        <span className="text-xs font-medium">{day}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="time-weekly">Time</Label>
+                  <Input
+                    id="time-weekly"
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            {/* Summary */}
+            <div className="bg-muted rounded-lg p-4">
+              <h4 className="text-sm font-medium mb-2">Summary</h4>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p><strong>Agent:</strong> {selectedAgent?.name}</p>
+                <p><strong>Batches:</strong> {callBatches.length}</p>
+                <p><strong>Test Cases:</strong> {callBatches.reduce((sum, b) => sum + b.testCases.length, 0)}</p>
+                <p>
+                  <strong>Schedule:</strong>{" "}
+                  {scheduleType === "once" && scheduleDate
+                    ? `Once on ${format(scheduleDate, "PPP")} at ${scheduleTime}`
+                    : scheduleType === "daily"
+                    ? `Daily at ${scheduleTime}`
+                    : scheduleType === "weekly" && scheduleDays.length > 0
+                    ? `Every ${scheduleDays.map(d => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")} at ${scheduleTime}`
+                    : "Not configured"}
+                </p>
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setShowScheduleDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleScheduleTest} disabled={isScheduling}>
+              {isScheduling ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CalendarClock className="mr-2 h-4 w-4" />
+              )}
+              Schedule Test
             </Button>
           </div>
         </DialogContent>
@@ -1343,5 +1918,17 @@ export default function NewTestRunPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function NewTestRunPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
+      <NewTestRunContent />
+    </Suspense>
   );
 }

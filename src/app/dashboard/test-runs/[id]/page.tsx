@@ -7,6 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   ArrowLeft,
   Play,
@@ -25,7 +34,24 @@ import {
   User,
   BarChart3,
   AlertTriangle,
+  LayoutGrid,
+  Table,
+  Eye,
+  Settings,
+  FileText,
+  History,
+  GitCompare,
+  X,
+  ExternalLink,
 } from "lucide-react";
+import {
+  Table as UITable,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
@@ -35,6 +61,7 @@ interface TestRunStatus {
   name: string;
   status: "running" | "completed" | "cancelled" | "paused";
   createdAt: string;
+  agentId?: string;
   progress: number;
   stats: {
     total: number;
@@ -43,6 +70,27 @@ interface TestRunStatus {
     failed: number;
     pending: number;
   };
+}
+
+interface AgentDetails {
+  id: string;
+  name: string;
+  provider: string;
+  external_agent_id: string;
+  config: Record<string, any>;
+  prompt?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PromptVersion {
+  id: string;
+  agent_id: string;
+  version_number: number;
+  prompt: string;
+  prompt_hash: string;
+  created_at: string;
 }
 
 interface PromptSuggestion {
@@ -66,6 +114,7 @@ interface TestResult {
   batchId?: string;
   batchName?: string;
   batchOrder?: number;
+  testMode?: 'voice' | 'chat';  // Test mode for this batch
   completedAt: string | null;
   overallScore?: number;
   hasRecording?: boolean;
@@ -93,6 +142,7 @@ interface BatchGroup {
   promptSuggestions?: PromptSuggestion[];
   userTranscript?: string;
   agentTranscript?: string;
+  testMode?: 'voice' | 'chat';  // Test mode for this batch
 }
 
 interface TestRunResults {
@@ -495,6 +545,69 @@ const statusColors: Record<string, string> = {
   paused: "bg-slate-200 text-slate-700",
 };
 
+// Helper function to format dates
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleString();
+};
+
+// Compute diff between two prompts
+interface DiffLine {
+  type: 'unchanged' | 'added' | 'deleted' | 'modified';
+  oldContent?: string;
+  newContent?: string;
+  oldLineNum?: number;
+  newLineNum?: number;
+}
+
+const computeDiff = (oldText: string, newText: string): DiffLine[] => {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const result: DiffLine[] = [];
+  
+  let oldIdx = 0;
+  let newIdx = 0;
+  
+  while (oldIdx < oldLines.length || newIdx < newLines.length) {
+    if (oldIdx >= oldLines.length) {
+      result.push({
+        type: 'added',
+        newContent: newLines[newIdx],
+        newLineNum: newIdx + 1,
+      });
+      newIdx++;
+    } else if (newIdx >= newLines.length) {
+      result.push({
+        type: 'deleted',
+        oldContent: oldLines[oldIdx],
+        oldLineNum: oldIdx + 1,
+      });
+      oldIdx++;
+    } else if (oldLines[oldIdx] === newLines[newIdx]) {
+      result.push({
+        type: 'unchanged',
+        oldContent: oldLines[oldIdx],
+        newContent: newLines[newIdx],
+        oldLineNum: oldIdx + 1,
+        newLineNum: newIdx + 1,
+      });
+      oldIdx++;
+      newIdx++;
+    } else {
+      result.push({
+        type: 'modified',
+        oldContent: oldLines[oldIdx],
+        newContent: newLines[newIdx],
+        oldLineNum: oldIdx + 1,
+        newLineNum: newIdx + 1,
+      });
+      oldIdx++;
+      newIdx++;
+    }
+  }
+  
+  return result;
+};
+
 export default function TestRunDetailPage() {
   const { getToken } = useAuth();
   const params = useParams();
@@ -507,6 +620,15 @@ export default function TestRunDetailPage() {
   const [isPolling, setIsPolling] = useState(true);
   const [selectedBatch, setSelectedBatch] = useState<BatchGroup | null>(null);
   const [audioDuration, setAudioDuration] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<'normal' | 'detailed' | 'agent'>('normal');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'passed' | 'failed'>('all');
+  
+  // Quick View state
+  const [agentDetails, setAgentDetails] = useState<AgentDetails | null>(null);
+  const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
+  const [isLoadingAgent, setIsLoadingAgent] = useState(false);
+  const [selectedPromptVersions, setSelectedPromptVersions] = useState<string[]>([]);
+  const [showPromptComparison, setShowPromptComparison] = useState(false);
 
   // Fetch test run status
   const fetchStatus = useCallback(async () => {
@@ -568,6 +690,85 @@ export default function TestRunDetailPage() {
       setIsLoading(false);
     }
   }, [getToken, testRunId]);
+
+  // Fetch agent details for Quick View
+  const fetchAgentDetails = useCallback(async (agentId: string) => {
+    if (!agentId) return;
+    
+    setIsLoadingAgent(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      // Fetch agent details
+      const agentResponse = await fetch(api.endpoints.agents.get(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (agentResponse.ok) {
+        const agentData = await agentResponse.json();
+        setAgentDetails(agentData.agent);
+        
+        // Set prompt versions if returned
+        if (agentData.promptVersions) {
+          setPromptVersions(agentData.promptVersions);
+        }
+      }
+
+      // Fetch prompt versions
+      const versionsResponse = await fetch(api.endpoints.agents.promptVersions(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (versionsResponse.ok) {
+        const versionsData = await versionsResponse.json();
+        setPromptVersions(versionsData.versions || []);
+      }
+    } catch (error) {
+      console.error("Error fetching agent details:", error);
+    } finally {
+      setIsLoadingAgent(false);
+    }
+  }, [getToken]);
+
+  // Handle switching to agent view
+  const handleSwitchToAgentView = useCallback(() => {
+    if (status?.agentId && !agentDetails) {
+      fetchAgentDetails(status.agentId);
+    }
+    setViewMode('agent');
+  }, [status?.agentId, agentDetails, fetchAgentDetails]);
+
+  // Prompt version selection handler
+  const handlePromptVersionSelect = (versionId: string, checked: boolean) => {
+    if (checked) {
+      if (selectedPromptVersions.length < 2) {
+        setSelectedPromptVersions([...selectedPromptVersions, versionId]);
+      }
+    } else {
+      setSelectedPromptVersions(selectedPromptVersions.filter(id => id !== versionId));
+      if (showPromptComparison) {
+        setShowPromptComparison(false);
+      }
+    }
+  };
+
+  // Get prompt by version ID for comparison
+  const getPromptByVersionId = (versionId: string) => {
+    if (versionId === 'current') {
+      return {
+        prompt: agentDetails?.prompt || '',
+        version: promptVersions[0]?.version_number || 1,
+        date: promptVersions[0]?.created_at,
+      };
+    }
+    const version = promptVersions.find(v => v.id === versionId);
+    return version ? {
+      prompt: version.prompt,
+      version: version.version_number,
+      date: version.created_at,
+    } : null;
+  };
 
   // Initial load and polling
   useEffect(() => {
@@ -632,6 +833,7 @@ export default function TestRunDetailPage() {
         conversationTurns: firstResult?.conversationTurns || [],
         userTranscript: firstResult?.userTranscript,
         agentTranscript: firstResult?.agentTranscript,
+        testMode: firstResult?.testMode,  // Include test mode from result
       };
     });
 
@@ -1220,6 +1422,38 @@ export default function TestRunDetailPage() {
                 : ""}
             </p>
           </div>
+          {/* View Toggle */}
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1 ml-4">
+            <Button
+              variant={viewMode === 'normal' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('normal')}
+              className="h-8 px-3"
+            >
+              <LayoutGrid className="h-4 w-4 mr-2" />
+              Normal View
+            </Button>
+            <Button
+              variant={viewMode === 'detailed' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('detailed')}
+              className="h-8 px-3"
+            >
+              <Table className="h-4 w-4 mr-2" />
+              Detailed Table
+            </Button>
+            {status?.agentId && (
+              <Button
+                variant={viewMode === 'agent' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={handleSwitchToAgentView}
+                className="h-8 px-3"
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                Agent Details
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1314,128 +1548,772 @@ export default function TestRunDetailPage() {
         </div>
       </div>
 
-      {/* Calls/Batches Grid */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">
-          Voice Calls ({batches.length})
-        </h2>
+      {/* View Content based on viewMode */}
+      {viewMode === 'normal' && (
+        // Normal Card View
+        (() => {
+        const voiceBatches = batches.filter(b => b.testMode !== 'chat');
+        const chatBatches = batches.filter(b => b.testMode === 'chat');
         
-        {batches.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-8 text-center text-muted-foreground">
-            {isLoading ? (
-              <div className="flex items-center justify-center gap-2">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Loading results...
+        const renderBatchCard = (batch: BatchGroup) => {
+          const batchStatus = getBatchStatus(batch);
+          
+          return (
+            <div
+              key={batch.id}
+              onClick={() => setSelectedBatch(batch)}
+              className={`bg-white dark:bg-gray-800 rounded-lg border p-5 cursor-pointer 
+                hover:shadow-lg hover:border-primary/50 transition-all group
+                ${batchStatus === 'running' ? 'border-slate-400 bg-slate-50/50' : ''}
+                ${batchStatus === 'passed' ? 'border-green-200' : ''}
+                ${batchStatus === 'failed' ? 'border-red-200' : ''}
+              `}
+            >
+              {/* Call Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center
+                    ${batchStatus === 'running' ? 'bg-slate-200 text-slate-600' : ''}
+                    ${batchStatus === 'passed' ? 'bg-green-100 text-green-600' : ''}
+                    ${batchStatus === 'failed' ? 'bg-red-100 text-red-600' : ''}
+                    ${batchStatus === 'mixed' ? 'bg-slate-200 text-slate-600' : ''}
+                    ${batchStatus === 'pending' ? 'bg-slate-100 text-slate-600' : ''}
+                  `}>
+                    {batchStatus === 'running' ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : batch.testMode === 'chat' ? (
+                      <MessageSquare className="h-5 w-5" />
+                    ) : (
+                      <Phone className="h-5 w-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{batch.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {batch.results.length} test case{batch.results.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
-            ) : (
-              "No test results yet"
+
+              {/* Stats */}
+              <div className="flex items-center gap-2 mb-3">
+                {batch.passedCount > 0 && (
+                  <div className="flex items-center gap-1 text-green-600 text-sm">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>{batch.passedCount}</span>
+                  </div>
+                )}
+                {batch.failedCount > 0 && (
+                  <div className="flex items-center gap-1 text-red-600 text-sm">
+                    <XCircle className="h-4 w-4" />
+                    <span>{batch.failedCount}</span>
+                  </div>
+                )}
+                {batch.runningCount > 0 && (
+                  <div className="flex items-center gap-1 text-slate-600 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{batch.runningCount}</span>
+                  </div>
+                )}
+                {batch.pendingCount > 0 && (
+                  <div className="flex items-center gap-1 text-slate-500 text-sm">
+                    <Clock className="h-4 w-4" />
+                    <span>{batch.pendingCount}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Indicators */}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {batch.hasTranscript && (
+                  <div className="flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    <span>{batch.conversationTurns.length} messages</span>
+                  </div>
+                )}
+                {batch.durationMs && (
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    <span>{(batch.durationMs / 1000).toFixed(1)}s</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Categories Preview */}
+              <div className="mt-3 flex flex-wrap gap-1">
+                {[...new Set(batch.results.map(r => r.category))].slice(0, 3).map(cat => (
+                  <Badge key={cat} variant="outline" className="text-xs">
+                    {cat}
+                  </Badge>
+                ))}
+                {[...new Set(batch.results.map(r => r.category))].length > 3 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{[...new Set(batch.results.map(r => r.category))].length - 3}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-6">
+            {/* Voice Calls Section */}
+            {voiceBatches.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Phone className="h-5 w-5" />
+                  Voice Calls ({voiceBatches.length})
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {voiceBatches.map(renderBatchCard)}
+                </div>
+              </div>
+            )}
+
+            {/* Chat Tests Section */}
+            {chatBatches.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  Chat Tests ({chatBatches.length})
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {chatBatches.map(renderBatchCard)}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {batches.length === 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border p-8 text-center text-muted-foreground">
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Loading results...
+                  </div>
+                ) : (
+                  "No test results yet"
+                )}
+              </div>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {batches.map((batch) => {
-              const batchStatus = getBatchStatus(batch);
-              
-              return (
-                <div
-                  key={batch.id}
-                  onClick={() => setSelectedBatch(batch)}
-                  className={`bg-white dark:bg-gray-800 rounded-lg border p-5 cursor-pointer 
-                    hover:shadow-lg hover:border-primary/50 transition-all group
-                    ${batchStatus === 'running' ? 'border-slate-400 bg-slate-50/50' : ''}
-                    ${batchStatus === 'passed' ? 'border-green-200' : ''}
-                    ${batchStatus === 'failed' ? 'border-red-200' : ''}
-                  `}
+        );
+      })()
+      )}
+
+      {viewMode === 'detailed' && (
+        // Detailed Table View
+        <div className="bg-white dark:bg-gray-800 rounded-lg border">
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Table className="h-5 w-5" />
+                  All Test Cases ({results?.results?.length || 0})
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Detailed view of all test cases with their status and results
+                </p>
+              </div>
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+                <Button
+                  variant={statusFilter === 'all' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setStatusFilter('all')}
+                  className="h-8 px-3"
                 >
-                  {/* Call Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-10 w-10 rounded-full flex items-center justify-center
-                        ${batchStatus === 'running' ? 'bg-slate-200 text-slate-600' : ''}
-                        ${batchStatus === 'passed' ? 'bg-green-100 text-green-600' : ''}
-                        ${batchStatus === 'failed' ? 'bg-red-100 text-red-600' : ''}
-                        ${batchStatus === 'mixed' ? 'bg-slate-200 text-slate-600' : ''}
-                        ${batchStatus === 'pending' ? 'bg-slate-100 text-slate-600' : ''}
-                      `}>
-                        {batchStatus === 'running' ? (
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <Phone className="h-5 w-5" />
-                        )}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold">{batch.name}</h3>
-                        <p className="text-xs text-muted-foreground">
-                          {batch.results.length} test case{batch.results.length !== 1 ? 's' : ''}
-                        </p>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </div>
-
-                  {/* Stats */}
-                  <div className="flex items-center gap-2 mb-3">
-                    {batch.passedCount > 0 && (
-                      <div className="flex items-center gap-1 text-green-600 text-sm">
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span>{batch.passedCount}</span>
-                      </div>
+                  All
+                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                    {results?.results?.length || 0}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={statusFilter === 'passed' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setStatusFilter('passed')}
+                  className="h-8 px-3"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1 text-green-600" />
+                  Passed
+                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                    {results?.results?.filter(r => r.status === 'passed').length || 0}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={statusFilter === 'failed' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setStatusFilter('failed')}
+                  className="h-8 px-3"
+                >
+                  <XCircle className="h-4 w-4 mr-1 text-red-600" />
+                  Failed
+                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                    {results?.results?.filter(r => r.status === 'failed').length || 0}
+                  </Badge>
+                </Button>
+              </div>
+            </div>
+          </div>
+          
+          {(() => {
+            const filteredResults = results?.results?.filter(r => {
+              if (statusFilter === 'all') return true;
+              return r.status === statusFilter;
+            }) || [];
+            
+            return filteredResults.length > 0 ? (
+            <div className="overflow-x-auto">
+              <UITable>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[50px]">#</TableHead>
+                    <TableHead className="w-[100px]">Status</TableHead>
+                    <TableHead className="w-[80px]">Mode</TableHead>
+                    <TableHead className="min-w-[150px]">Batch / Category</TableHead>
+                    <TableHead className="min-w-[200px]">Test Case</TableHead>
+                    <TableHead className="min-w-[200px]">Expected Response</TableHead>
+                    <TableHead className="min-w-[200px]">Actual Response</TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredResults.map((result, index) => (
+                    <TableRow 
+                      key={result.id}
+                      className={`
+                        ${result.status === 'failed' ? 'bg-red-50/50 dark:bg-red-900/10' : ''}
+                        ${result.status === 'running' ? 'bg-slate-50 dark:bg-slate-800/50' : ''}
+                        hover:bg-gray-50 dark:hover:bg-gray-700/50
+                      `}
+                    >
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {index + 1}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {result.status === 'passed' && (
+                            <Badge className="bg-green-100 text-green-800">
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Passed
+                            </Badge>
+                          )}
+                          {result.status === 'failed' && (
+                            <Badge className="bg-red-100 text-red-800">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Failed
+                            </Badge>
+                          )}
+                          {result.status === 'pending' && (
+                            <Badge className="bg-slate-100 text-slate-700">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Pending
+                            </Badge>
+                          )}
+                          {result.status === 'running' && (
+                            <Badge className="bg-slate-200 text-slate-800 animate-pulse">
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                              Running
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {result.testMode === 'chat' ? (
+                            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            {result.testMode === 'chat' ? 'Chat' : 'Voice'}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="font-medium text-sm truncate max-w-[150px]" title={result.batchName || result.category}>
+                            {result.batchName || result.category}
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            {result.category}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px]">
+                          <p className="text-sm font-medium truncate" title={result.userInput}>
+                            {result.userInput}
+                          </p>
+                          {result.scenario && (
+                            <p className="text-xs text-muted-foreground truncate" title={result.scenario}>
+                              {result.scenario}
+                            </p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px]">
+                          <p className="text-xs text-muted-foreground line-clamp-3" title={result.expectedResponse}>
+                            {result.expectedResponse || '-'}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px]">
+                          <p 
+                            className={`text-xs line-clamp-3 ${
+                              result.status === 'passed' ? 'text-green-600' : 
+                              result.status === 'failed' ? 'text-red-600' : 
+                              'text-muted-foreground'
+                            }`}
+                            title={result.actualResponse}
+                          >
+                            {result.actualResponse || '-'}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const batch = batches.find(b => b.id === result.batchId);
+                            if (batch) setSelectedBatch(batch);
+                          }}
+                          className="h-8 w-8 p-0"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </UITable>
+            </div>
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              {isLoading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Loading results...
+                </div>
+              ) : statusFilter !== 'all' ? (
+                `No ${statusFilter} test cases`
+              ) : (
+                "No test results yet"
+              )}
+            </div>
+          );
+          })()}
+          
+          {/* Summary footer for detailed view */}
+          {results?.results && results.results.length > 0 && (
+            <div className="p-4 border-t bg-muted/30">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-4">
+                  <span className="text-muted-foreground">
+                    Showing {results.results.filter(r => statusFilter === 'all' || r.status === statusFilter).length} of {results.results.length} test cases
+                    {statusFilter !== 'all' && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        onClick={() => setStatusFilter('all')}
+                        className="h-auto p-0 ml-2 text-primary"
+                      >
+                        Clear filter
+                      </Button>
                     )}
-                    {batch.failedCount > 0 && (
-                      <div className="flex items-center gap-1 text-red-600 text-sm">
-                        <XCircle className="h-4 w-4" />
-                        <span>{batch.failedCount}</span>
-                      </div>
-                    )}
-                    {batch.runningCount > 0 && (
-                      <div className="flex items-center gap-1 text-slate-600 text-sm">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>{batch.runningCount}</span>
-                      </div>
-                    )}
-                    {batch.pendingCount > 0 && (
-                      <div className="flex items-center gap-1 text-slate-500 text-sm">
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-green-600">
+                      <CheckCircle2 className="h-4 w-4" />
+                      {results.results.filter(r => r.status === 'passed').length} passed
+                    </span>
+                    <span className="flex items-center gap-1 text-red-600">
+                      <XCircle className="h-4 w-4" />
+                      {results.results.filter(r => r.status === 'failed').length} failed
+                    </span>
+                    {results.results.filter(r => r.status === 'pending').length > 0 && (
+                      <span className="flex items-center gap-1 text-slate-500">
                         <Clock className="h-4 w-4" />
-                        <span>{batch.pendingCount}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Indicators */}
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    {batch.hasTranscript && (
-                      <div className="flex items-center gap-1">
-                        <MessageSquare className="h-3 w-3" />
-                        <span>{batch.conversationTurns.length} messages</span>
-                      </div>
-                    )}
-                    {batch.durationMs && (
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>{(batch.durationMs / 1000).toFixed(1)}s</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Categories Preview */}
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {[...new Set(batch.results.map(r => r.category))].slice(0, 3).map(cat => (
-                      <Badge key={cat} variant="outline" className="text-xs">
-                        {cat}
-                      </Badge>
-                    ))}
-                    {[...new Set(batch.results.map(r => r.category))].length > 3 && (
-                      <Badge variant="outline" className="text-xs">
-                        +{[...new Set(batch.results.map(r => r.category))].length - 3}
-                      </Badge>
+                        {results.results.filter(r => r.status === 'pending').length} pending
+                      </span>
                     )}
                   </div>
                 </div>
-              );
-            })}
+                <div className="text-muted-foreground">
+                  Pass Rate: <span className="font-semibold text-foreground">
+                    {results.summary?.passRate?.toFixed(1) || 0}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Agent Details View */}
+      {viewMode === 'agent' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border">
+          {/* Header */}
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Bot className="h-6 w-6 text-primary" />
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    {agentDetails?.name || "Agent Details"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    View agent configuration, prompt, and version history
+                  </p>
+                </div>
+              </div>
+              {agentDetails && (
+                <Link href={`/dashboard/agents/${agentDetails.id}`}>
+                  <Button variant="outline" size="sm">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open Full Page
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+
+          {isLoadingAgent ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : agentDetails ? (
+            <div className="p-4">
+              <Tabs defaultValue="prompt" className="w-full">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="prompt">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Prompt
+                  </TabsTrigger>
+                  <TabsTrigger value="config">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Configuration
+                  </TabsTrigger>
+                  <TabsTrigger value="versions">
+                    <History className="h-4 w-4 mr-2" />
+                    Version History
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Prompt Tab */}
+                <TabsContent value="prompt" className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">Current Prompt</h3>
+                      <Badge variant="outline">
+                        {agentDetails.provider}
+                      </Badge>
+                    </div>
+                    <div className="border rounded-lg p-4 bg-muted/30 max-h-[500px] overflow-y-auto">
+                      <pre className="text-sm whitespace-pre-wrap font-mono">
+                        {agentDetails.prompt || "No prompt available"}
+                      </pre>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Config Tab */}
+                <TabsContent value="config" className="space-y-4">
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium">Agent Configuration</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="border rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Provider</p>
+                        <p className="font-medium">{agentDetails.provider}</p>
+                      </div>
+                      <div className="border rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">External ID</p>
+                        <p className="font-mono text-sm truncate" title={agentDetails.external_agent_id}>
+                          {agentDetails.external_agent_id}
+                        </p>
+                      </div>
+                      <div className="border rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Status</p>
+                        <Badge variant={agentDetails.status === 'active' ? 'default' : 'secondary'}>
+                          {agentDetails.status}
+                        </Badge>
+                      </div>
+                      <div className="border rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Last Updated</p>
+                        <p className="text-sm">{formatDate(agentDetails.updated_at)}</p>
+                      </div>
+                    </div>
+                    
+                    {agentDetails.config && Object.keys(agentDetails.config).length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-sm font-medium mb-2">Additional Config</h4>
+                        <div className="border rounded-lg p-4 bg-muted/30 max-h-[400px] overflow-y-auto">
+                          <pre className="text-xs font-mono">
+                            {JSON.stringify(agentDetails.config, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+
+                {/* Version History Tab */}
+                <TabsContent value="versions" className="space-y-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-medium">Prompt Version History</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Select 2 versions to compare changes
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedPromptVersions.length === 2 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowPromptComparison(!showPromptComparison)}
+                        >
+                          <GitCompare className="h-4 w-4 mr-2" />
+                          {showPromptComparison ? "Hide Comparison" : "Compare Selected"}
+                        </Button>
+                      )}
+                      {selectedPromptVersions.length > 0 && selectedPromptVersions.length < 2 && (
+                        <span className="text-xs text-muted-foreground">
+                          Select 1 more to compare
+                        </span>
+                      )}
+                      {promptVersions.length > 0 && (
+                        <Badge variant="secondary">
+                          <History className="h-3 w-3 mr-1" />
+                          {promptVersions.length} version{promptVersions.length !== 1 ? "s" : ""}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <Accordion type="single" collapsible defaultValue="current" className="w-full">
+                    {/* Current Prompt */}
+                    <AccordionItem value="current" className="relative">
+                      <div className="flex items-start gap-3">
+                        <div className="flex items-center h-[52px]">
+                          <Checkbox
+                            checked={selectedPromptVersions.includes('current')}
+                            onCheckedChange={(checked) => handlePromptVersionSelect('current', checked as boolean)}
+                            disabled={!selectedPromptVersions.includes('current') && selectedPromptVersions.length >= 2}
+                          />
+                        </div>
+                        <AccordionTrigger className="hover:no-underline flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <FileText className="h-4 w-4 text-primary" />
+                            <span className="font-medium">Current Version</span>
+                            {promptVersions.length > 0 && (
+                              <>
+                                <Badge variant="outline" className="ml-2">
+                                  v{promptVersions[0]?.version_number || 1}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDate(promptVersions[0]?.created_at)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </AccordionTrigger>
+                      </div>
+                      <AccordionContent>
+                        <div className="border rounded-lg p-4 bg-muted/30 mt-2 ml-6 max-h-[300px] overflow-y-auto">
+                          <pre className="text-sm whitespace-pre-wrap font-mono">{agentDetails.prompt}</pre>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+
+                    {/* Historical Versions */}
+                    {promptVersions.slice(1).map((version) => (
+                      <AccordionItem key={version.id} value={version.id} className="relative">
+                        <div className="flex items-start gap-3">
+                          <div className="flex items-center h-[52px]">
+                            <Checkbox
+                              checked={selectedPromptVersions.includes(version.id)}
+                              onCheckedChange={(checked) => handlePromptVersionSelect(version.id, checked as boolean)}
+                              disabled={!selectedPromptVersions.includes(version.id) && selectedPromptVersions.length >= 2}
+                            />
+                          </div>
+                          <AccordionTrigger className="hover:no-underline flex-1">
+                            <div className="flex items-center gap-2">
+                              <History className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-muted-foreground">
+                                Version {version.version_number}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(version.created_at)}
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                        </div>
+                        <AccordionContent>
+                          <div className="border rounded-lg p-4 bg-muted/30 mt-2 ml-6 max-h-[300px] overflow-y-auto">
+                            <pre className="text-sm whitespace-pre-wrap font-mono">
+                              {version.prompt}
+                            </pre>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+
+                  {promptVersions.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No version history available yet.
+                    </p>
+                  )}
+
+                  {/* Diff Comparison View */}
+                  {showPromptComparison && selectedPromptVersions.length === 2 && (() => {
+                    const version1 = getPromptByVersionId(selectedPromptVersions[0]);
+                    const version2 = getPromptByVersionId(selectedPromptVersions[1]);
+                    
+                    if (!version1 || !version2) return null;
+                    
+                    const [older, newer] = version1.version < version2.version 
+                      ? [version1, version2] 
+                      : [version2, version1];
+                    
+                    const diff = computeDiff(older.prompt, newer.prompt);
+                    
+                    const addedCount = diff.filter(l => l.type === 'added').length;
+                    const deletedCount = diff.filter(l => l.type === 'deleted').length;
+                    const modifiedCount = diff.filter(l => l.type === 'modified').length;
+                    
+                    return (
+                      <div className="mt-6 border rounded-lg overflow-hidden">
+                        <div className="bg-muted px-4 py-3 border-b flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <GitCompare className="h-4 w-4" />
+                            <span className="font-medium">Version Comparison</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-red-500/20 border border-red-500"></span>
+                              <span className="text-muted-foreground">{deletedCount} deleted</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-slate-500/20 border border-slate-500"></span>
+                              <span className="text-muted-foreground">{modifiedCount} modified</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded bg-green-500/20 border border-green-500"></span>
+                              <span className="text-muted-foreground">{addedCount} added</span>
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowPromptComparison(false);
+                                setSelectedPromptVersions([]);
+                              }}
+                              className="h-7 w-7 p-0 ml-2"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {/* Header row with version badges */}
+                        <div className="grid grid-cols-2 divide-x border-b">
+                          <div className="bg-muted/50 px-4 py-2 text-sm font-medium flex items-center gap-2">
+                            <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30">
+                              v{older.version}
+                            </Badge>
+                            <span className="text-muted-foreground text-xs">
+                              {older.date && formatDate(older.date)}
+                            </span>
+                          </div>
+                          <div className="bg-muted/50 px-4 py-2 text-sm font-medium flex items-center gap-2">
+                            <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                              v{newer.version}
+                            </Badge>
+                            <span className="text-muted-foreground text-xs">
+                              {newer.date && formatDate(newer.date)}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Unified diff view */}
+                        <ScrollArea className="h-[400px]">
+                          <div className="font-mono text-xs">
+                            {diff.map((line, idx) => (
+                              <div key={idx} className="grid grid-cols-2 divide-x">
+                                {/* Left side (older) */}
+                                <div
+                                  className={`flex min-h-[24px] ${
+                                    line.type === 'deleted' 
+                                      ? 'bg-red-500/15' 
+                                      : line.type === 'modified'
+                                        ? 'bg-red-500/10'
+                                        : ''
+                                  }`}
+                                >
+                                  <span className="w-8 flex-shrink-0 text-right pr-2 text-muted-foreground py-0.5 select-none border-r bg-muted/30 text-[10px]">
+                                    {line.oldLineNum || ''}
+                                  </span>
+                                  <span className="w-5 flex-shrink-0 text-center py-0.5 select-none">
+                                    {(line.type === 'deleted' || line.type === 'modified') && (
+                                      <span className="text-red-500 font-bold">−</span>
+                                    )}
+                                  </span>
+                                  <pre className={`flex-1 py-0.5 px-2 whitespace-pre-wrap break-all ${
+                                    line.type === 'deleted' || line.type === 'modified' ? 'text-red-600' : ''
+                                  }`}>
+                                    {line.oldContent ?? ''}
+                                  </pre>
+                                </div>
+                                
+                                {/* Right side (newer) */}
+                                <div
+                                  className={`flex min-h-[24px] ${
+                                    line.type === 'added' 
+                                      ? 'bg-green-500/15' 
+                                      : line.type === 'modified'
+                                        ? 'bg-green-500/10'
+                                        : ''
+                                  }`}
+                                >
+                                  <span className="w-8 flex-shrink-0 text-right pr-2 text-muted-foreground py-0.5 select-none border-r bg-muted/30 text-[10px]">
+                                    {line.newLineNum || ''}
+                                  </span>
+                                  <span className="w-5 flex-shrink-0 text-center py-0.5 select-none">
+                                    {(line.type === 'added' || line.type === 'modified') && (
+                                      <span className="text-green-500 font-bold">+</span>
+                                    )}
+                                  </span>
+                                  <pre className={`flex-1 py-0.5 px-2 whitespace-pre-wrap break-all ${
+                                    line.type === 'added' || line.type === 'modified' ? 'text-green-600' : ''
+                                  }`}>
+                                    {line.newContent ?? ''}
+                                  </pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    );
+                  })()}
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : (
+            <div className="text-center py-16 text-muted-foreground">
+              No agent details available
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

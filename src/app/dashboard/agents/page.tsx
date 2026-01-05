@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
@@ -29,7 +29,10 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus,
   Loader2,
@@ -37,10 +40,18 @@ import {
   Calendar,
   Search,
   AlertCircle,
+  Sparkles,
+  Edit,
+  MessageSquare,
+  Brain,
+  Volume2,
+  ArrowRight,
+  Info,
+  Wand2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime";
+type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom";
 
 interface Integration {
   id: string;
@@ -76,6 +87,7 @@ const providerNames: Record<Provider, string> = {
   retell: "Retell",
   vapi: "VAPI",
   openai_realtime: "OpenAI Realtime",
+  custom: "Custom Agent",
 };
 
 const providerColors: Record<Provider, string> = {
@@ -83,6 +95,59 @@ const providerColors: Record<Provider, string> = {
   retell: "bg-slate-100 text-slate-800",
   vapi: "bg-slate-100 text-slate-800",
   openai_realtime: "bg-slate-100 text-slate-800",
+  custom: "bg-purple-100 text-purple-800",
+};
+
+// LLM Models available for custom agents
+const LLM_MODELS = [
+  { id: "gpt-4o", name: "GPT-4o", provider: "openai", description: "Most capable, best for complex tasks" },
+  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", description: "Fast and cost-effective" },
+  { id: "gpt-4-turbo", name: "GPT-4 Turbo", provider: "openai", description: "Balanced performance" },
+  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "openai", description: "Fastest, most economical" },
+  { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", provider: "anthropic", description: "Excellent reasoning" },
+  { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku", provider: "anthropic", description: "Fast and efficient" },
+];
+
+// Voice options for TTS
+const TTS_VOICES = [
+  { id: "alloy", name: "Alloy", gender: "neutral", description: "Warm and engaging" },
+  { id: "echo", name: "Echo", gender: "male", description: "Clear and professional" },
+  { id: "fable", name: "Fable", gender: "neutral", description: "Expressive storyteller" },
+  { id: "onyx", name: "Onyx", gender: "male", description: "Deep and authoritative" },
+  { id: "nova", name: "Nova", gender: "female", description: "Friendly and natural" },
+  { id: "shimmer", name: "Shimmer", gender: "female", description: "Soft and pleasant" },
+];
+
+interface CustomAgentConfig {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  startingMessage: string;
+  llmModel: string;
+  llmProvider: string;
+  temperature: number;
+  maxTokens: number;
+  voice: string;
+  knowledgeBase: string;
+  responseStyle: "concise" | "detailed" | "conversational";
+  language: string;
+  agentType: "chat" | "voice";
+}
+
+const defaultCustomConfig: CustomAgentConfig = {
+  name: "",
+  description: "",
+  systemPrompt: "",
+  startingMessage: "Hello! How can I help you today?",
+  llmModel: "gpt-4o-mini",
+  llmProvider: "openai",
+  temperature: 0.7,
+  maxTokens: 500,
+  voice: "nova",
+  knowledgeBase: "",
+  responseStyle: "conversational",
+  language: "en-US",
+  agentType: "voice",
 };
 
 export default function AgentsPage() {
@@ -100,6 +165,15 @@ export default function AgentsPage() {
   const [selectedProviderAgent, setSelectedProviderAgent] = useState<string>("");
   const [providerAgents, setProviderAgents] = useState<ProviderAgent[]>([]);
   const [agentSearch, setAgentSearch] = useState("");
+
+  // Custom agent modal state
+  const [showCustomAgentModal, setShowCustomAgentModal] = useState(false);
+  const [editingCustomAgent, setEditingCustomAgent] = useState<ConnectedAgent | null>(null);
+  const [customConfig, setCustomConfig] = useState<CustomAgentConfig>(defaultCustomConfig);
+  const [customActiveTab, setCustomActiveTab] = useState("basic");
+  const [isSavingCustom, setIsSavingCustom] = useState(false);
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
   // Loading states
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
@@ -206,7 +280,12 @@ export default function AgentsPage() {
 
         if (response.ok) {
           const data = await response.json();
-          setProviderAgents(data.agents || []);
+          // De-duplicate agents by id to prevent React key errors
+          const uniqueAgents = (data.agents || []).filter(
+            (agent: ProviderAgent, index: number, self: ProviderAgent[]) =>
+              index === self.findIndex((a) => a.id === agent.id)
+          );
+          setProviderAgents(uniqueAgents);
         } else {
           const errorData = await response.json();
           setError(errorData.message || "Failed to load agents from provider");
@@ -340,6 +419,163 @@ export default function AgentsPage() {
     resetModalState();
   };
 
+  // Custom agent handlers
+  const openCreateCustomDialog = () => {
+    setEditingCustomAgent(null);
+    setCustomConfig(defaultCustomConfig);
+    setCustomActiveTab("basic");
+    setCustomError(null);
+    setShowCustomAgentModal(true);
+  };
+
+  const openEditCustomDialog = (agent: ConnectedAgent) => {
+    setEditingCustomAgent(agent);
+    setCustomConfig(agent.config as unknown as CustomAgentConfig || defaultCustomConfig);
+    setCustomActiveTab("basic");
+    setCustomError(null);
+    setShowCustomAgentModal(true);
+  };
+
+  const handleSaveCustomAgent = async () => {
+    if (!customConfig.name.trim()) {
+      setCustomError("Agent name is required");
+      return;
+    }
+    if (!customConfig.systemPrompt.trim()) {
+      setCustomError("System prompt is required");
+      return;
+    }
+
+    setIsSavingCustom(true);
+    setCustomError(null);
+
+    try {
+      const token = await getToken();
+      const endpoint = editingCustomAgent 
+        ? `${api.baseUrl}/api/custom-agents/${editingCustomAgent.id}`
+        : `${api.baseUrl}/api/custom-agents`;
+      
+      const response = await fetch(endpoint, {
+        method: editingCustomAgent ? "PUT" : "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(customConfig),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (editingCustomAgent) {
+          // Update existing agent in list
+          setConnectedAgents(connectedAgents.map(a => 
+            a.id === editingCustomAgent.id ? data.agent : a
+          ));
+        } else {
+          // Add new agent to list
+          setConnectedAgents([data.agent, ...connectedAgents]);
+        }
+        setShowCustomAgentModal(false);
+        setEditingCustomAgent(null);
+        setCustomConfig(defaultCustomConfig);
+      } else {
+        const errorData = await response.json();
+        setCustomError(errorData.error || "Failed to save agent");
+      }
+    } catch (error) {
+      console.error("Error saving custom agent:", error);
+      setCustomError("Failed to save agent");
+    } finally {
+      setIsSavingCustom(false);
+    }
+  };
+
+  // Auto-generate system prompt based on basic info
+  const autoGeneratePrompt = async () => {
+    if (!customConfig.name.trim()) {
+      setCustomError("Please enter an agent name first");
+      return;
+    }
+
+    setIsGeneratingPrompt(true);
+    setCustomError(null);
+
+    try {
+      const token = await getToken();
+      const response = await fetch(`${api.baseUrl}/api/custom-agents/generate-prompt`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: customConfig.name,
+          description: customConfig.description,
+          agentType: customConfig.agentType,
+          responseStyle: customConfig.responseStyle,
+          language: customConfig.language,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setCustomConfig({
+          ...customConfig,
+          systemPrompt: data.prompt,
+          startingMessage: data.startingMessage || customConfig.startingMessage,
+        });
+      } else {
+        // Fallback to template-based generation if API fails
+        const generatedPrompt = generateTemplatePrompt();
+        setCustomConfig({
+          ...customConfig,
+          systemPrompt: generatedPrompt.prompt,
+          startingMessage: generatedPrompt.startingMessage,
+        });
+      }
+    } catch (error) {
+      // Fallback to template-based generation
+      const generatedPrompt = generateTemplatePrompt();
+      setCustomConfig({
+        ...customConfig,
+        systemPrompt: generatedPrompt.prompt,
+        startingMessage: generatedPrompt.startingMessage,
+      });
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  };
+
+  // Template-based prompt generation fallback
+  const generateTemplatePrompt = () => {
+    const agentTypeText = customConfig.agentType === "voice" ? "voice-based" : "text-based chat";
+    const styleGuide = {
+      concise: "Keep responses brief and to the point. Avoid unnecessary elaboration.",
+      detailed: "Provide comprehensive and thorough responses with full explanations.",
+      conversational: "Maintain a natural, friendly conversational tone throughout interactions.",
+    };
+
+    const prompt = `You are ${customConfig.name}, a professional ${agentTypeText} assistant.${customConfig.description ? `\n\nRole: ${customConfig.description}` : ""}
+
+## Communication Style
+- ${styleGuide[customConfig.responseStyle]}
+- Language: ${customConfig.language === "en-US" ? "English (US)" : customConfig.language}
+${customConfig.agentType === "voice" ? "- Speak naturally as this is a voice conversation. Use conversational language and avoid text-specific formatting like bullet points or markdown.\n- Keep responses concise for natural speech flow." : "- You may use formatting like bullet points when helpful for clarity."}
+
+## Guidelines
+1. Be helpful, accurate, and professional
+2. If you don't know something, admit it honestly
+3. Stay focused on your role and expertise
+4. Be respectful and patient with users
+${customConfig.agentType === "voice" ? "5. Confirm important information by repeating it back\n6. Use natural speech patterns and avoid jargon" : ""}`;
+
+    const startingMessage = customConfig.agentType === "voice" 
+      ? `Hello! This is ${customConfig.name}. How can I help you today?`
+      : `Hi there! I'm ${customConfig.name}. How can I assist you?`;
+
+    return { prompt, startingMessage };
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
@@ -366,10 +602,16 @@ export default function AgentsPage() {
             Manage your connected voice agents
           </p>
         </div>
-        <Button onClick={handleOpenModal}>
-          <Plus className="mr-2 h-4 w-4" />
-          Connect Agent
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={openCreateCustomDialog}>
+            <Sparkles className="mr-2 h-4 w-4" />
+            Create Custom Agent
+          </Button>
+          <Button onClick={handleOpenModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            Connect Agent
+          </Button>
+        </div>
       </div>
 
       {/* Agents Grid or Empty State */}
@@ -383,13 +625,19 @@ export default function AgentsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">
-              Add a voice agent from ElevenLabs, Retell, VAPI, or OpenAI Realtime
-              to begin generating test cases.
+              Add a voice agent from ElevenLabs, Retell, VAPI, OpenAI Realtime,
+              or create a custom agent to begin testing.
             </p>
-            <Button onClick={handleOpenModal}>
-              <Plus className="mr-2 h-4 w-4" />
-              Connect Your First Agent
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={openCreateCustomDialog}>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Create Custom Agent
+              </Button>
+              <Button onClick={handleOpenModal}>
+                <Plus className="mr-2 h-4 w-4" />
+                Connect Agent
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -397,9 +645,23 @@ export default function AgentsPage() {
           {connectedAgents.map((agent) => (
             <Card
               key={agent.id}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="cursor-pointer hover:shadow-md transition-shadow relative group"
               onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
             >
+              {/* Edit button for custom agents */}
+              {agent.provider === "custom" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEditCustomDialog(agent);
+                  }}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+              )}
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
@@ -520,9 +782,9 @@ export default function AgentsPage() {
                     {/* Agent List */}
                     <ScrollArea className="h-[200px] border rounded-md">
                       <div className="p-2 space-y-1">
-                        {filteredProviderAgents.map((agent) => (
+                        {filteredProviderAgents.map((agent, index) => (
                           <div
-                            key={agent.id}
+                            key={`${agent.id}-${index}`}
                             className={`p-3 rounded-md cursor-pointer transition-colors ${
                               selectedProviderAgent === agent.id
                                 ? "bg-primary/10 border border-primary"
@@ -577,6 +839,329 @@ export default function AgentsPage() {
               ) : (
                 "Connect Agent"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create/Edit Custom Agent Dialog */}
+      <Dialog open={showCustomAgentModal} onOpenChange={setShowCustomAgentModal}>
+        <DialogContent className="!max-w-[80vw] !w-[80vw] max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-violet-500" />
+              {editingCustomAgent ? "Edit Custom Agent" : "Create Custom Agent"}
+            </DialogTitle>
+            <DialogDescription>
+              Configure your custom voice agent for simulation testing. Perfect for testing agents without API access.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto">
+            <Tabs value={customActiveTab} onValueChange={setCustomActiveTab} className="w-full">
+              <div className="px-6 pt-4 border-b bg-muted/30">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="basic" className="gap-2">
+                    <Bot className="h-4 w-4" />
+                    Basic Info
+                  </TabsTrigger>
+                  <TabsTrigger value="prompt" className="gap-2">
+                    <MessageSquare className="h-4 w-4" />
+                    Prompt
+                  </TabsTrigger>
+                  <TabsTrigger value="model" className="gap-2">
+                    <Brain className="h-4 w-4" />
+                    LLM Settings
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <div className="p-6">
+                {/* Basic Info Tab */}
+                <TabsContent value="basic" className="mt-0 space-y-6">
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Agent Name *</Label>
+                      <Input
+                        id="name"
+                        placeholder="e.g., Customer Support Agent"
+                        value={customConfig.name}
+                        onChange={(e) => setCustomConfig({ ...customConfig, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="language">Language</Label>
+                      <Select
+                        value={customConfig.language}
+                        onValueChange={(value) => setCustomConfig({ ...customConfig, language: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en-US">English (US)</SelectItem>
+                          <SelectItem value="en-GB">English (UK)</SelectItem>
+                          <SelectItem value="es-ES">Spanish</SelectItem>
+                          <SelectItem value="fr-FR">French</SelectItem>
+                          <SelectItem value="de-DE">German</SelectItem>
+                          <SelectItem value="it-IT">Italian</SelectItem>
+                          <SelectItem value="pt-BR">Portuguese (BR)</SelectItem>
+                          <SelectItem value="ja-JP">Japanese</SelectItem>
+                          <SelectItem value="ko-KR">Korean</SelectItem>
+                          <SelectItem value="zh-CN">Chinese (Simplified)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      placeholder="Describe what this agent does..."
+                      value={customConfig.description}
+                      onChange={(e) => setCustomConfig({ ...customConfig, description: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="responseStyle">Response Style</Label>
+                      <Select
+                        value={customConfig.responseStyle}
+                        onValueChange={(value: "concise" | "detailed" | "conversational") => 
+                          setCustomConfig({ ...customConfig, responseStyle: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="concise">Concise - Short, direct responses</SelectItem>
+                          <SelectItem value="detailed">Detailed - Comprehensive explanations</SelectItem>
+                          <SelectItem value="conversational">Conversational - Natural dialogue</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="agentType">Agent Type</Label>
+                      <Select
+                        value={customConfig.agentType}
+                        onValueChange={(value: "chat" | "voice") => 
+                          setCustomConfig({ ...customConfig, agentType: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="chat">Chat Agent - Text-based conversations</SelectItem>
+                          <SelectItem value="voice">Voice Agent - Voice-based conversations</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Voice Selection - Only shown for Voice Agents */}
+                  {customConfig.agentType === "voice" && (
+                    <div className="space-y-4 pt-4 border-t">
+                      <div>
+                        <Label>Voice Selection</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Choose a voice for text-to-speech when running voice-based simulations.
+                        </p>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {TTS_VOICES.map((voice) => (
+                          <Card
+                            key={voice.id}
+                            className={`cursor-pointer transition-all ${
+                              customConfig.voice === voice.id
+                                ? "border-primary ring-2 ring-primary/20"
+                                : "hover:border-muted-foreground/50"
+                            }`}
+                            onClick={() => setCustomConfig({ ...customConfig, voice: voice.id })}
+                          >
+                            <CardContent className="p-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                                  <Volume2 className="h-4 w-4 text-white" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">{voice.name}</p>
+                                  <p className="text-xs text-muted-foreground">{voice.description}</p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Prompt Tab */}
+                <TabsContent value="prompt" className="mt-0 space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="systemPrompt">System Prompt *</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={autoGeneratePrompt}
+                        disabled={isGeneratingPrompt}
+                        className="gap-2"
+                      >
+                        {isGeneratingPrompt ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Wand2 className="h-4 w-4" />
+                        )}
+                        Auto Generate
+                      </Button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      The main instructions that define how the agent behaves. Copy from your voice agent platform or auto-generate based on basic info.
+                    </p>
+                    <Textarea
+                      id="systemPrompt"
+                      placeholder="You are a helpful customer service agent for Acme Corp..."
+                      value={customConfig.systemPrompt}
+                      onChange={(e) => setCustomConfig({ ...customConfig, systemPrompt: e.target.value })}
+                      rows={12}
+                      className="font-mono text-sm"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="startingMessage">Starting Message</Label>
+                    <p className="text-sm text-muted-foreground">
+                      The first message the agent says when a conversation starts.
+                    </p>
+                    <Textarea
+                      id="startingMessage"
+                      placeholder="Hello! How can I help you today?"
+                      value={customConfig.startingMessage}
+                      onChange={(e) => setCustomConfig({ ...customConfig, startingMessage: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="knowledgeBase">Knowledge Base (Optional)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Additional context or information the agent should know. FAQs, product details, etc.
+                    </p>
+                    <Textarea
+                      id="knowledgeBase"
+                      placeholder="FAQ: What are your business hours? We're open Mon-Fri 9am-5pm..."
+                      value={customConfig.knowledgeBase}
+                      onChange={(e) => setCustomConfig({ ...customConfig, knowledgeBase: e.target.value })}
+                      rows={8}
+                      className="font-mono text-sm"
+                    />
+                  </div>
+                </TabsContent>
+
+                {/* LLM Settings Tab */}
+                <TabsContent value="model" className="mt-0 space-y-6">
+                  <div className="space-y-4">
+                    <Label>LLM Model</Label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {LLM_MODELS.map((model) => (
+                        <Card
+                          key={model.id}
+                          className={`cursor-pointer transition-all ${
+                            customConfig.llmModel === model.id
+                              ? "border-primary ring-2 ring-primary/20"
+                              : "hover:border-muted-foreground/50"
+                          }`}
+                          onClick={() => setCustomConfig({ ...customConfig, llmModel: model.id, llmProvider: model.provider })}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">{model.name}</p>
+                                <p className="text-sm text-muted-foreground">{model.description}</p>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                {model.provider}
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Temperature: {customConfig.temperature.toFixed(2)}</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Controls randomness. Lower = more focused, higher = more creative.
+                        </p>
+                      </div>
+                    </div>
+                    <Slider
+                      value={[customConfig.temperature]}
+                      onValueChange={([value]) => setCustomConfig({ ...customConfig, temperature: value })}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Focused (0)</span>
+                      <span>Balanced (0.5)</span>
+                      <span>Creative (1)</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Max Response Tokens: {customConfig.maxTokens}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Maximum length of agent responses.
+                    </p>
+                    <Slider
+                      value={[customConfig.maxTokens]}
+                      onValueChange={([value]) => setCustomConfig({ ...customConfig, maxTokens: value })}
+                      min={50}
+                      max={2000}
+                      step={50}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Short (50)</span>
+                      <span>Medium (500)</span>
+                      <span>Long (2000)</span>
+                    </div>
+                  </div>
+                </TabsContent>
+              </div>
+            </Tabs>
+          </div>
+
+          {customError && (
+            <div className="px-6 py-2 bg-destructive/10 border-t border-destructive/20">
+              <p className="text-sm text-destructive">{customError}</p>
+            </div>
+          )}
+
+          <DialogFooter className="px-6 py-4 border-t">
+            <Button variant="outline" onClick={() => setShowCustomAgentModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCustomAgent} disabled={isSavingCustom} className="gap-2">
+              {isSavingCustom ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
+              {editingCustomAgent ? "Save Changes" : "Create Agent"}
             </Button>
           </DialogFooter>
         </DialogContent>

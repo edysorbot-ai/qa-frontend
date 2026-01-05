@@ -33,6 +33,7 @@ import {
   LogOut,
   ChevronUp,
   Users,
+  CalendarClock,
 } from "lucide-react";
 
 const menuItems = [
@@ -50,6 +51,11 @@ const menuItems = [
     title: "Test Runs",
     icon: PlayCircle,
     href: "/dashboard/test-runs",
+  },
+  {
+    title: "Scheduled Tests",
+    icon: CalendarClock,
+    href: "/dashboard/scheduled-tests",
   },
   {
     title: "Settings",
