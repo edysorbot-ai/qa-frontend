@@ -69,6 +69,7 @@ interface TestCase {
   key_topic?: string;
   test_type?: string;
   batch_compatible?: boolean;
+  test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
   created_at: string;
 }
 
@@ -86,6 +87,8 @@ interface CallBatch {
   testCases: TestCase[];
   reasoning: string;
   estimatedDuration: string;
+  testMode?: 'voice' | 'chat';  // Testing mode for this batch
+  testModeReason?: string;
 }
 
 export default function TestCasesPage() {

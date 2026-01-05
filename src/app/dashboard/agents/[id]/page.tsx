@@ -136,6 +136,7 @@ interface TestCase {
   category: string;
   expectedOutcome: string;
   priority: "high" | "medium" | "low";
+  test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
 }
 
 interface DynamicVariable {
@@ -1313,11 +1314,16 @@ export default function AgentDetailPage() {
         const newConfig = fetchedAgent || {};
         
         // Extract prompt based on provider format
-        const newPrompt = fetchedAgent?.description || 
+        // Retell stores full prompt in metadata.fullPrompt
+        // ElevenLabs stores in agent_prompt or system_prompt
+        // VAPI stores in prompt
+        const newPrompt = fetchedAgent?.metadata?.fullPrompt ||
+                          fetchedAgent?.description || 
                           fetchedAgent?.prompt || 
                           fetchedAgent?.system_prompt || 
                           fetchedAgent?.agent_prompt ||
                           fetchedAgent?.metadata?.prompt ||
+                          fetchedAgent?.metadata?.general_prompt ||
                           "";
 
         // Update agent in database
@@ -1338,7 +1344,10 @@ export default function AgentDetailPage() {
           // Also try to extract prompt from the updated config
           let finalPrompt = updatedData.agent.prompt;
           if (!finalPrompt && updatedData.agent.config) {
-            finalPrompt = updatedData.agent.config.description || 
+            // Try to extract prompt from various locations in config
+            finalPrompt = updatedData.agent.config.metadata?.fullPrompt ||
+                          updatedData.agent.config.metadata?.general_prompt ||
+                          updatedData.agent.config.description || 
                           updatedData.agent.config.prompt || 
                           "";
           }
@@ -1763,6 +1772,9 @@ export default function AgentDetailPage() {
                                     value !== null && 
                                     value !== "" &&
                                     key !== "fullConfig" &&
+                                    key !== "prompt" &&
+                                    key !== "systemPrompt" &&
+                                    key !== "firstMessage" &&
                                     typeof value !== "object"
                                   )
                                   .map(([key, value]) => renderConfigField(
@@ -1828,6 +1840,9 @@ export default function AgentDetailPage() {
                                       value !== null && 
                                       value !== "" &&
                                       key !== "fullConfig" &&
+                                      key !== "prompt" &&
+                                      key !== "systemPrompt" &&
+                                      key !== "firstMessage" &&
                                       typeof value !== "object"
                                     )
                                     .map(([key, value]) => renderConfigField(
@@ -2959,7 +2974,7 @@ export default function AgentDetailPage() {
 
       {/* Generated Test Cases Selection Dialog - Full Screen */}
       <Dialog open={showGeneratedTestCasesDialog} onOpenChange={setShowGeneratedTestCasesDialog}>
-        <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !m-0 flex flex-col p-0 [&>button]:hidden">
+        <DialogContent className="!max-w-[80vw] !w-[80vw] !h-[85vh] !rounded-lg flex flex-col p-0 [&>button]:hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-8 py-5 border-b bg-background">
             <div>
@@ -3262,15 +3277,15 @@ export default function AgentDetailPage() {
 
       {/* Dynamic Variables Dialog */}
       <Dialog open={showDynamicVariablesDialog} onOpenChange={setShowDynamicVariablesDialog}>
-        <DialogContent className="max-w-5xl max-h-[80vh] flex flex-col">
+        <DialogContent className="!max-w-[70vw] !w-[70vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
-                <DialogTitle className="flex items-center gap-2">
-                  <span className="h-5 w-5 flex items-center justify-center text-sm font-bold">{'{X}'}</span>
+                <DialogTitle className="flex items-center gap-2 text-xl">
+                  <span className="h-6 w-6 flex items-center justify-center text-base font-bold">{'{X}'}</span>
                   Dynamic Variables
                 </DialogTitle>
-                <DialogDescription>
+                <DialogDescription className="text-sm mt-1">
                   Variables extracted from the agent's prompt. Set test values for testing.
                 </DialogDescription>
               </div>
@@ -3281,7 +3296,7 @@ export default function AgentDetailPage() {
             </div>
           </DialogHeader>
           
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto mt-4">
             {isLoadingVariables ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -3300,16 +3315,16 @@ export default function AgentDetailPage() {
                 <table className="w-full">
                   <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider text-muted-foreground w-[200px]">
                         Variable Name
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider text-muted-foreground w-[200px]">
                         Pattern
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider text-muted-foreground w-[120px]">
                         Source
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                         Test Value
                       </th>
                     </tr>
@@ -3317,24 +3332,24 @@ export default function AgentDetailPage() {
                   <tbody className="divide-y">
                     {dynamicVariables.map((variable, index) => (
                       <tr key={index} className="hover:bg-muted/30">
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <code className="bg-primary/10 text-primary px-2 py-1 rounded text-sm font-mono">
+                            <code className="bg-primary/10 text-primary px-3 py-1.5 rounded text-sm font-mono font-medium">
                               {variable.name}
                             </code>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                        <td className="px-6 py-4">
+                          <code className="text-sm text-muted-foreground bg-muted px-3 py-1.5 rounded">
                             {variable.pattern}
                           </code>
                         </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="outline" className="text-xs">
+                        <td className="px-6 py-4">
+                          <Badge variant="outline" className="text-sm px-3 py-1">
                             {variable.source}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           <Input
                             value={variable.testValue || ''}
                             onChange={(e) => {
@@ -3343,7 +3358,7 @@ export default function AgentDetailPage() {
                               setDynamicVariables(newVars);
                             }}
                             placeholder={variable.defaultValue || `Enter test value for ${variable.name}`}
-                            className="h-8 text-sm max-w-xs"
+                            className="h-10 text-sm w-full"
                           />
                         </td>
                       </tr>
@@ -3354,7 +3369,7 @@ export default function AgentDetailPage() {
             )}
           </div>
           
-          <DialogFooter className="mt-4">
+          <DialogFooter className="mt-6">
             <Button variant="outline" onClick={() => setShowDynamicVariablesDialog(false)}>
               Cancel
             </Button>

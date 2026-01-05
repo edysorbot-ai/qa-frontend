@@ -44,6 +44,20 @@ export const api = {
       knowledgeBaseDocumentContent: (id: string, documentId: string) => `${API_BASE_URL}/api/agents/${id}/knowledge-base/${documentId}/content`,
       testCases: (id: string) => `${API_BASE_URL}/api/agents/${id}/test-cases`,
       workflow: (id: string) => `${API_BASE_URL}/api/agents/${id}/workflow`,
+      promptVersions: (id: string) => `${API_BASE_URL}/api/agents/${id}/prompt-versions`,
+    },
+
+    // Custom Agents (Agent Builder)
+    customAgents: {
+      list: `${API_BASE_URL}/api/custom-agents`,
+      create: `${API_BASE_URL}/api/custom-agents`,
+      get: (id: string) => `${API_BASE_URL}/api/custom-agents/${id}`,
+      update: (id: string) => `${API_BASE_URL}/api/custom-agents/${id}`,
+      delete: (id: string) => `${API_BASE_URL}/api/custom-agents/${id}`,
+      chat: (id: string) => `${API_BASE_URL}/api/custom-agents/${id}/chat`,
+      simulate: (id: string) => `${API_BASE_URL}/api/custom-agents/${id}/simulate`,
+      models: `${API_BASE_URL}/api/custom-agents/config/models`,
+      voices: `${API_BASE_URL}/api/custom-agents/config/voices`,
     },
     
     // Test Cases
@@ -75,6 +89,32 @@ export const api = {
       analyzeForBatching: `${API_BASE_URL}/api/test-execution/analyze-for-batching`,
       startBatched: `${API_BASE_URL}/api/test-execution/start-batched`,
       generateSmartTestCases: `${API_BASE_URL}/api/test-execution/generate-smart-test-cases`,
+    },
+
+    // Scheduled Tests
+    scheduledTests: {
+      list: `${API_BASE_URL}/api/scheduled-tests`,
+      create: `${API_BASE_URL}/api/scheduled-tests`,
+      get: (id: string) => `${API_BASE_URL}/api/scheduled-tests/${id}`,
+      update: (id: string) => `${API_BASE_URL}/api/scheduled-tests/${id}`,
+      delete: (id: string) => `${API_BASE_URL}/api/scheduled-tests/${id}`,
+      toggle: (id: string) => `${API_BASE_URL}/api/scheduled-tests/${id}/toggle`,
+    },
+
+    // Alert Settings
+    alertSettings: {
+      get: `${API_BASE_URL}/api/alert-settings`,
+      update: `${API_BASE_URL}/api/alert-settings`,
+      addEmail: `${API_BASE_URL}/api/alert-settings/add-email`,
+      removeEmail: `${API_BASE_URL}/api/alert-settings/remove-email`,
+    },
+
+    // Team Members
+    teamMembers: {
+      list: `${API_BASE_URL}/api/team-members`,
+      create: `${API_BASE_URL}/api/team-members`,
+      delete: (id: string) => `${API_BASE_URL}/api/team-members/${id}`,
+      checkRole: `${API_BASE_URL}/api/team-members/check-role`,
     },
   },
 };

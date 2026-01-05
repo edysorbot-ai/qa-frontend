@@ -80,13 +80,12 @@ export function ModernAudioPlayer({
   }, []);
 
   // Generate waveform segments
-  const { segments, avgLatency, gaps } = useMemo(() => {
+  const segments = useMemo(() => {
     if (duration <= 0 || conversationTurns.length === 0) {
-      return { segments: [] as WaveformSegment[], avgLatency: 0, gaps: [] };
+      return [] as WaveformSegment[];
     }
 
     const segs: WaveformSegment[] = [];
-    const gapsList: { startTime: number; endTime: number; latencyMs: number }[] = [];
     const pixelsPerSecond = canvasWidth / duration;
 
     const turnsWithWeight = conversationTurns.map((turn, idx) => {
@@ -97,13 +96,8 @@ export function ModernAudioPlayer({
     const totalWeight = turnsWithWeight.reduce((s, t) => s + t.weight, 0);
     const gapCount = conversationTurns.length - 1;
     
-    const hasRealLatency = conversationTurns.some(t => t.latency_ms && t.latency_ms > 0);
-    const totalRealLatencyMs = conversationTurns.reduce((sum, t) => sum + (t.latency_ms || 0), 0);
-    
-    const gapTime = hasRealLatency 
-      ? Math.min(totalRealLatencyMs / 1000, duration * 0.3)
-      : (gapCount > 0 ? 0.12 * duration : 0);
-    
+    // Small gaps between turns for visual separation
+    const gapTime = gapCount > 0 ? 0.05 * duration : 0;
     const speechTime = duration - gapTime;
 
     let currentT = 0;
@@ -121,35 +115,13 @@ export function ModernAudioPlayer({
       currentT += segDuration;
       
       if (idx < conversationTurns.length - 1) {
-        const nextTurn = conversationTurns[idx + 1];
-        const realLatencyMs = nextTurn?.latency_ms || 0;
-        
-        let gapDuration: number;
-        if (hasRealLatency && realLatencyMs > 0) {
-          gapDuration = (realLatencyMs / totalRealLatencyMs) * gapTime;
-        } else {
-          gapDuration = gapCount > 0 ? gapTime / gapCount : 0;
-        }
-        
-        gapsList.push({
-          startTime: currentT,
-          endTime: currentT + gapDuration,
-          latencyMs: realLatencyMs > 0 ? realLatencyMs : gapDuration * 1000,
-        });
+        // Small gap between turns
+        const gapDuration = gapCount > 0 ? gapTime / gapCount : 0;
         currentT += gapDuration;
       }
     });
 
-    const latencies = gapsList.map(g => g.latencyMs);
-    const avgLat = latencies.length > 0 
-      ? latencies.reduce((a, b) => a + b, 0) / latencies.length 
-      : 0;
-
-    return { 
-      segments: segs, 
-      avgLatency: avgLat,
-      gaps: gapsList,
-    };
+    return segs;
   }, [duration, conversationTurns, canvasWidth]);
 
   // Draw waveform
@@ -171,8 +143,7 @@ export function ModernAudioPlayer({
 
     ctx.clearRect(0, 0, width, height);
 
-    const waveformHeight = height * 0.65;
-    const dimensionY = height * 0.82;
+    const waveformHeight = height * 0.8;
     const centerY = waveformHeight / 2;
 
     const waveColors = {
@@ -209,51 +180,6 @@ export function ModernAudioPlayer({
       });
     });
 
-    // Draw latency indicators
-    const maxLabelsToShow = 4;
-    const skipEvery = gaps.length > maxLabelsToShow ? Math.ceil(gaps.length / maxLabelsToShow) : 1;
-    
-    gaps.forEach((gap, index) => {
-      const startX = (gap.startTime / duration) * width;
-      const endX = (gap.endTime / duration) * width;
-      const midX = (startX + endX) / 2;
-      const gapWidth = endX - startX;
-      
-      if (index % skipEvery !== 0) return;
-      
-      const latencyText = gap.latencyMs >= 1000 
-        ? `${(gap.latencyMs / 1000).toFixed(1)}s`
-        : `${Math.round(gap.latencyMs)}ms`;
-      
-      // Monochrome gray style
-      ctx.strokeStyle = "#9ca3af";
-      ctx.fillStyle = "#9ca3af";
-      ctx.lineWidth = 1;
-      
-      ctx.beginPath();
-      ctx.moveTo(startX + 2, dimensionY);
-      ctx.lineTo(endX - 2, dimensionY);
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(startX + 2, dimensionY - 3);
-      ctx.lineTo(startX + 2, dimensionY + 3);
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(endX - 2, dimensionY - 3);
-      ctx.lineTo(endX - 2, dimensionY + 3);
-      ctx.stroke();
-      
-      if (gapWidth > 15) {
-        ctx.font = "bold 9px system-ui, sans-serif";
-        ctx.fillStyle = "#6b7280";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(latencyText, midX, dimensionY + 5);
-      }
-    });
-
     // Draw playhead
     if (currentTime > 0 || isPlaying) {
       const playX = (currentTime / duration) * width;
@@ -267,7 +193,7 @@ export function ModernAudioPlayer({
       ctx.fill();
     }
 
-  }, [segments, gaps, currentTime, duration, isPlaying]);
+  }, [segments, currentTime, duration, isPlaying]);
 
   const togglePlayPause = async () => {
     if (!audioRef.current) return;
@@ -378,14 +304,6 @@ export function ModernAudioPlayer({
               <span className="text-[10px] text-slate-300 font-medium">Agent</span>
             </div>
           </div>
-
-          {avgLatency > 0 && (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10">
-              <span className="text-[10px] font-medium text-slate-300">
-                {avgLatency >= 1000 ? `${(avgLatency/1000).toFixed(1)}s` : `${Math.round(avgLatency)}ms`} avg
-              </span>
-            </div>
-          )}
         </div>
       </div>
 

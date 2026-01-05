@@ -25,6 +25,8 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
+import ComprehensiveMetricsDashboard from "@/components/comprehensive-metrics-dashboard";
+import { ComprehensiveTestMetrics } from "@/types/metrics";
 
 interface ConversationTurn {
   role: "user" | "agent";
@@ -100,6 +102,9 @@ interface TestResultDetail {
     strengths: string[];
     issues: Array<string | EvaluationIssue>;
   };
+  
+  // Comprehensive Metrics (13 Categories)
+  comprehensiveMetrics?: ComprehensiveTestMetrics;
   
   // Intent
   detectedIntent: string | null;
@@ -477,17 +482,73 @@ export default function TestResultDetailPage() {
       </div>
 
       {/* Tabs for Transcript and Analytics */}
-      <Tabs defaultValue="transcript" className="mt-6">
-        <TabsList>
+      <Tabs defaultValue="comprehensive" className="mt-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="comprehensive" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Comprehensive Metrics
+          </TabsTrigger>
           <TabsTrigger value="transcript" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
             Transcript & Recording
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
-            Call Analytics & Metrics
+            Legacy Analytics
           </TabsTrigger>
         </TabsList>
+
+        {/* Comprehensive Metrics Tab */}
+        <TabsContent value="comprehensive" className="mt-6">
+          {result.comprehensiveMetrics ? (
+            <ComprehensiveMetricsDashboard metrics={result.comprehensiveMetrics} />
+          ) : (
+            <ComprehensiveMetricsDashboard 
+              metrics={{
+                overallScore: result.overallScore,
+                categoryScores: {
+                  conversationQuality: result.coreMetrics.accuracy,
+                  promptCompliance: result.advancedMetrics.protocol,
+                  outcomeEffectiveness: result.coreMetrics.completeness,
+                  voicePerformance: result.advancedMetrics.voiceQuality,
+                  systemPerformance: result.advancedMetrics.responseSpeed,
+                  userExperience: result.advancedMetrics.empathy,
+                  complianceSafety: result.advancedMetrics.noHallucination,
+                },
+                conversationQuality: {
+                  intentDetectionAccuracy: result.intentMatch ? 100 : 0,
+                  responseRelevanceScore: result.coreMetrics.relevance,
+                  hallucinationFrequency: 100 - result.advancedMetrics.noHallucination,
+                  empathyScore: result.advancedMetrics.empathy,
+                  toneAlignmentScore: result.advancedMetrics.tone,
+                  naturalnessScore: result.advancedMetrics.voiceQuality,
+                },
+                voicePerformance: {
+                  audioClarityScore: result.advancedMetrics.voiceQuality,
+                  voiceStabilityScore: result.advancedMetrics.voiceQuality,
+                },
+                systemPerformance: {
+                  averageResponseLatencyMs: result.latencyMs,
+                  firstResponseLatencyMs: result.latencyMs,
+                },
+                outcomeEffectiveness: {
+                  goalCompletionRate: result.outputMatch ? 100 : 0,
+                },
+                actionableInsights: result.analysis.issues.length > 0 ? {
+                  autoPromptImprovementSuggestions: result.analysis.issues.map((issue) => ({
+                    issue: typeof issue === 'string' ? issue : (issue as EvaluationIssue).problem,
+                    suggestion: typeof issue === 'string' 
+                      ? 'Review and update the prompt to handle this scenario better'
+                      : (issue as EvaluationIssue).shouldHaveSaid,
+                    location: 'System Prompt',
+                    priority: 'medium' as const,
+                    expectedImpact: 'Improved response accuracy',
+                  })),
+                } : undefined,
+              }} 
+            />
+          )}
+        </TabsContent>
 
         {/* Transcript Tab */}
         <TabsContent value="transcript" className="mt-6 space-y-6">
