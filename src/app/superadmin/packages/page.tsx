@@ -24,6 +24,7 @@ interface CreditPackage {
   price_usd: number;
   is_unlimited: boolean;
   is_active: boolean;
+  is_default: boolean;
   validity_days: number;
   max_team_members: number;
   features: Record<string, boolean>;
@@ -46,7 +47,7 @@ function Modal({ open, onClose, title, children }: { open: boolean; onClose: () 
   );
 }
 
-const defaultForm = { name: "", description: "", credits: 100, price_usd: 9.99, is_unlimited: false, is_active: true, validity_days: 30, max_team_members: 1, features: {} as Record<string, boolean> };
+const defaultForm = { name: "", description: "", credits: 100, price_usd: 9.99, is_unlimited: false, is_active: true, is_default: false, validity_days: 30, max_team_members: 1, features: {} as Record<string, boolean> };
 
 export default function PackagesPage() {
   const [packages, setPackages] = useState<CreditPackage[]>([]);
@@ -94,7 +95,7 @@ export default function PackagesPage() {
   const openCreateModal = () => { setIsEditing(false); setSelectedPackage(null); setForm(defaultForm); setError(""); setShowModal(true); };
   const openEditModal = (pkg: CreditPackage) => {
     setIsEditing(true); setSelectedPackage(pkg);
-    setForm({ name: pkg.name, description: pkg.description || "", credits: pkg.credits, price_usd: pkg.price_usd, is_unlimited: pkg.is_unlimited, is_active: pkg.is_active, validity_days: pkg.validity_days, max_team_members: pkg.max_team_members, features: pkg.features || {} });
+    setForm({ name: pkg.name, description: pkg.description || "", credits: pkg.credits, price_usd: pkg.price_usd, is_unlimited: pkg.is_unlimited, is_active: pkg.is_active, is_default: pkg.is_default || false, validity_days: pkg.validity_days, max_team_members: pkg.max_team_members, features: pkg.features || {} });
     setError(""); setShowModal(true);
   };
 
@@ -119,7 +120,7 @@ export default function PackagesPage() {
       const response = await fetch(url, { method: isEditing ? "PATCH" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify(form) });
       if (!response.ok) throw new Error("Failed to save package");
       setShowModal(false); fetchPackages();
-    } catch (err: any) { setError(err.message); } finally { setActionLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save package'); } finally { setActionLoading(false); }
   };
 
   const handleDelete = async () => {
@@ -129,7 +130,7 @@ export default function PackagesPage() {
       const response = await fetch(`${API_URL}/superadmin/packages/${selectedPackage.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
       if (!response.ok) throw new Error("Failed to delete package");
       setShowDeleteModal(false); fetchPackages();
-    } catch (err: any) { setError(err.message); } finally { setActionLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to delete package'); } finally { setActionLoading(false); }
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-2 border-white border-t-transparent"></div></div>;
@@ -157,7 +158,7 @@ export default function PackagesPage() {
               const enabledFeatures = Object.values(pkg.features || {}).filter(v => v).length;
               return (
               <tr key={pkg.id} className="hover:bg-zinc-900/50 transition-colors">
-                <td className="px-6 py-4"><div><p className="text-white font-medium">{pkg.name}</p><p className="text-zinc-500 text-sm">{pkg.description || "No description"}</p></div></td>
+                <td className="px-6 py-4"><div><p className="text-white font-medium flex items-center gap-2">{pkg.name}{pkg.is_default && <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full">Default</span>}</p><p className="text-zinc-500 text-sm">{pkg.description || "No description"}</p></div></td>
                 <td className="px-6 py-4">{pkg.is_unlimited ? <span className="flex items-center gap-1 text-white"><Infinity className="w-4 h-4" /> Unlimited</span> : <span className="text-white">{pkg.credits.toLocaleString()}</span>}</td>
                 <td className="px-6 py-4"><span className="text-white font-medium">${pkg.price_usd}</span></td>
                 <td className="px-6 py-4"><span className="text-zinc-400">{enabledFeatures} features</span></td>
@@ -190,6 +191,10 @@ export default function PackagesPage() {
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_unlimited} onChange={(e) => setForm({ ...form, is_unlimited: e.target.checked })} className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-white" /><span className="text-zinc-400 text-sm">Unlimited credits</span></label>
             <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-white" /><span className="text-zinc-400 text-sm">Active</span></label>
+          </div>
+          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+            <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-blue-500" /><span className="text-blue-400 text-sm font-medium">Set as default package for new signups</span></label>
+            <p className="text-xs text-zinc-500 mt-1 ml-6">New users will automatically receive this package when they sign up</p>
           </div>
           
           {/* Features Section */}
