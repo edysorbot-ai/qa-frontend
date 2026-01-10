@@ -37,7 +37,7 @@ function Modal({ open, onClose, title, children }: { open: boolean; onClose: () 
   );
 }
 
-const defaultForm = { code: "", description: "", discount_type: "percentage" as const, discount_value: 10, credits_bonus: 0, max_uses: undefined as number | undefined, min_purchase_amount: 0, valid_from: new Date().toISOString().split("T")[0], valid_until: "", is_active: true };
+const defaultForm: { code: string; description: string; discount_type: "percentage" | "fixed" | "credits"; discount_value: number; credits_bonus: number; max_uses: number | undefined; min_purchase_amount: number; valid_from: string; valid_until: string; is_active: boolean } = { code: "", description: "", discount_type: "percentage", discount_value: 10, credits_bonus: 0, max_uses: undefined, min_purchase_amount: 0, valid_from: new Date().toISOString().split("T")[0], valid_until: "", is_active: true };
 
 export default function CouponsPage() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);

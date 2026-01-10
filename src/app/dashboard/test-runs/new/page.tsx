@@ -750,7 +750,7 @@ function NewTestRunContent() {
         if (isSubError) {
           // Set a user-friendly error message for the UI
           if (errorResult) {
-            setError(`${errorResult.title}: ${errorResult.description}`);
+            setError(`${errorResult.code}: ${errorResult.message}`);
           }
           return;
         }
