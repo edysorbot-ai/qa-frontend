@@ -104,15 +104,18 @@ const providerColors: Record<Provider, string> = {
   haptik: "bg-orange-100 text-orange-800",
 };
 
-// LLM Models available for custom agents
-const LLM_MODELS = [
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai", description: "Most capable, best for complex tasks" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", description: "Fast and cost-effective" },
-  { id: "gpt-4-turbo", name: "GPT-4 Turbo", provider: "openai", description: "Balanced performance" },
-  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "openai", description: "Fastest, most economical" },
-  { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", provider: "anthropic", description: "Excellent reasoning" },
-  { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku", provider: "anthropic", description: "Fast and efficient" },
-];
+// LLM Model interface from OpenRouter
+interface LLMModel {
+  id: string;
+  name: string;
+  description?: string;
+  provider?: string;
+  context_length?: number;
+  pricing?: {
+    prompt: string;
+    completion: string;
+  };
+}
 
 // Voice options for TTS
 const TTS_VOICES = [
@@ -145,8 +148,8 @@ const defaultCustomConfig: CustomAgentConfig = {
   description: "",
   systemPrompt: "",
   startingMessage: "Hello! How can I help you today?",
-  llmModel: "gpt-4o-mini",
-  llmProvider: "openai",
+  llmModel: "openai/gpt-4o-mini",
+  llmProvider: "openrouter",
   temperature: 0.7,
   maxTokens: 500,
   voice: "nova",
@@ -180,12 +183,53 @@ export default function AgentsPage() {
   const [isSavingCustom, setIsSavingCustom] = useState(false);
   const [customError, setCustomError] = useState<string | null>(null);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  
+  // LLM Models state
+  const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
 
   // Loading states
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
   const [isLoadingProviderAgents, setIsLoadingProviderAgents] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch LLM models when custom agent modal opens
+  useEffect(() => {
+    if (!showCustomAgentModal) return;
+
+    const loadModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const response = await fetch(`${api.baseUrl}/api/custom-agents/config/models`);
+
+        if (response.ok) {
+          const data = await response.json();
+          // API returns array directly, not wrapped in { models: [] }
+          setLlmModels(Array.isArray(data) ? data : data.models || []);
+        }
+      } catch (error) {
+        console.error("Error fetching LLM models:", error);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    loadModels();
+  }, [showCustomAgentModal]);
+
+  // Helper to extract provider from model ID (e.g., "openai/gpt-4o" -> "openai")
+  const getProviderFromId = (id: string) => id.split('/')[0] || 'unknown';
+
+  // Filter models based on search
+  const filteredModels = llmModels.filter((model) => {
+    const searchLower = modelSearchQuery.toLowerCase();
+    const provider = getProviderFromId(model.id);
+    return model.name.toLowerCase().includes(searchLower) ||
+      model.id.toLowerCase().includes(searchLower) ||
+      provider.toLowerCase().includes(searchLower);
+  });
 
   // Fetch connected agents
   useEffect(() => {
@@ -1075,32 +1119,93 @@ ${customConfig.agentType === "voice" ? "5. Confirm important information by repe
                 {/* LLM Settings Tab */}
                 <TabsContent value="model" className="mt-0 space-y-6">
                   <div className="space-y-4">
-                    <Label>LLM Model</Label>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {LLM_MODELS.map((model) => (
-                        <Card
-                          key={model.id}
-                          className={`cursor-pointer transition-all ${
-                            customConfig.llmModel === model.id
-                              ? "border-primary ring-2 ring-primary/20"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          onClick={() => setCustomConfig({ ...customConfig, llmModel: model.id, llmProvider: model.provider })}
-                        >
-                          <CardContent className="p-4">
+                    <div>
+                      <Label>LLM Model</Label>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Powered by OpenRouter - access to 100+ models from OpenAI, Anthropic, Google, Meta, and more.
+                      </p>
+                    </div>
+                    
+                    {isLoadingModels ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                        <span className="ml-2 text-muted-foreground">Loading models...</span>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search models (e.g., GPT-4, Claude, Llama, Gemini...)"
+                            value={modelSearchQuery}
+                            onChange={(e) => setModelSearchQuery(e.target.value)}
+                            className="pl-9"
+                          />
+                        </div>
+
+                        {/* Selected Model Display */}
+                        {customConfig.llmModel && (
+                          <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="font-medium">{model.name}</p>
-                                <p className="text-sm text-muted-foreground">{model.description}</p>
+                                <p className="font-medium text-sm">
+                                  Selected: {llmModels.find(m => m.id === customConfig.llmModel)?.name || customConfig.llmModel}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Provider: {customConfig.llmModel.split('/')[0]}
+                                </p>
                               </div>
-                              <Badge variant="outline" className="text-xs">
-                                {model.provider}
+                              <Badge variant="secondary" className="text-xs">
+                                {customConfig.llmModel.split('/')[0]}
                               </Badge>
                             </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
+                          </div>
+                        )}
+
+                        {/* Model List */}
+                        <ScrollArea className="h-[280px] border rounded-lg">
+                          <div className="p-2 space-y-1">
+                            {filteredModels.length > 0 ? (
+                              filteredModels.map((model) => (
+                                <div
+                                  key={model.id}
+                                  className={`p-3 rounded-md cursor-pointer transition-colors ${
+                                    customConfig.llmModel === model.id
+                                      ? "bg-primary/10 border border-primary"
+                                      : "hover:bg-muted"
+                                  }`}
+                                  onClick={() => setCustomConfig({ 
+                                    ...customConfig, 
+                                    llmModel: model.id, 
+                                    llmProvider: "openrouter" 
+                                  })}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-medium text-sm truncate">{model.name}</p>
+                                      {model.description && (
+                                        <p className="text-xs text-muted-foreground line-clamp-1">{model.description}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline" className="text-xs ml-2 shrink-0">
+                                      {getProviderFromId(model.id)}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="p-4 text-center text-muted-foreground">
+                                {modelSearchQuery ? "No models match your search" : "No models available"}
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
+                        <p className="text-xs text-muted-foreground">
+                          {filteredModels.length} models available
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-4">

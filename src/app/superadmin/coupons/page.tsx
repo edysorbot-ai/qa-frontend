@@ -80,7 +80,7 @@ export default function CouponsPage() {
       const response = await fetch(url, { method: isEditing ? "PATCH" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify(form) });
       if (!response.ok) throw new Error("Failed to save coupon");
       setShowModal(false); fetchCoupons();
-    } catch (err: any) { setError(err.message); } finally { setActionLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save coupon'); } finally { setActionLoading(false); }
   };
 
   const handleDelete = async () => {
@@ -90,7 +90,7 @@ export default function CouponsPage() {
       const response = await fetch(`${API_URL}/superadmin/coupons/${selectedCoupon.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
       if (!response.ok) throw new Error("Failed to delete coupon");
       setShowDeleteModal(false); fetchCoupons();
-    } catch (err: any) { setError(err.message); } finally { setActionLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to delete coupon'); } finally { setActionLoading(false); }
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-2 border-white border-t-transparent"></div></div>;
@@ -138,7 +138,7 @@ export default function CouponsPage() {
           <div><label className="block text-sm text-zinc-400 mb-2">Code</label><input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white font-mono focus:outline-none focus:border-zinc-600" /></div>
           <div><label className="block text-sm text-zinc-400 mb-2">Description</label><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-zinc-600" /></div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-sm text-zinc-400 mb-2">Discount Type</label><select value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value as any })} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-zinc-600"><option value="percentage">Percentage</option><option value="fixed">Fixed Amount</option><option value="credits">Bonus Credits</option></select></div>
+            <div><label className="block text-sm text-zinc-400 mb-2">Discount Type</label><select value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value as "percentage" | "fixed" | "credits" })} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-zinc-600"><option value="percentage">Percentage</option><option value="fixed">Fixed Amount</option><option value="credits">Bonus Credits</option></select></div>
             <div><label className="block text-sm text-zinc-400 mb-2">{form.discount_type === "credits" ? "Bonus Credits" : "Discount Value"}</label><input type="number" value={form.discount_type === "credits" ? form.credits_bonus : form.discount_value} onChange={(e) => setForm({ ...form, [form.discount_type === "credits" ? "credits_bonus" : "discount_value"]: parseInt(e.target.value) })} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-zinc-600" /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
