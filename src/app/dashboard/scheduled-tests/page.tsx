@@ -53,10 +53,12 @@ import {
   RefreshCw,
   CalendarDays,
   Edit,
+  StopCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useCallback } from "react";
 import { format } from "date-fns";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface BatchTestCase {
   id: string;
@@ -85,6 +87,10 @@ interface ScheduledTest {
   scheduled_date?: string;
   scheduled_days?: number[];
   timezone: string;
+  ends_type: "never" | "on" | "after";
+  ends_on_date?: string;
+  ends_after_occurrences?: number;
+  completed_occurrences: number;
   status: "active" | "paused" | "completed";
   last_run_at?: string;
   next_run_at?: string;
@@ -121,6 +127,9 @@ export default function ScheduledTestsPage() {
   const [editScheduleDate, setEditScheduleDate] = useState<Date | undefined>(undefined);
   const [editScheduleTime, setEditScheduleTime] = useState("");
   const [editScheduleDays, setEditScheduleDays] = useState<number[]>([]);
+  const [editEndsType, setEditEndsType] = useState<"never" | "on" | "after">("never");
+  const [editEndsOnDate, setEditEndsOnDate] = useState<Date | undefined>(undefined);
+  const [editEndsAfterOccurrences, setEditEndsAfterOccurrences] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
 
   // Helper to get minimum allowed time (30 min from now)
@@ -145,10 +154,17 @@ export default function ScheduledTestsPage() {
     setEditScheduleType(test.schedule_type);
     setEditScheduleTime(test.scheduled_time);
     setEditScheduleDays(test.scheduled_days || []);
+    setEditEndsType(test.ends_type || "never");
+    setEditEndsAfterOccurrences(test.ends_after_occurrences || 1);
     if (test.scheduled_date) {
       setEditScheduleDate(new Date(test.scheduled_date));
     } else {
       setEditScheduleDate(undefined);
+    }
+    if (test.ends_on_date) {
+      setEditEndsOnDate(new Date(test.ends_on_date));
+    } else {
+      setEditEndsOnDate(undefined);
     }
   };
 
@@ -175,6 +191,15 @@ export default function ScheduledTestsPage() {
     if (editScheduleType === "weekly" && editScheduleDays.length === 0) {
       return;
     }
+    // Validate end options for recurring schedules
+    if ((editScheduleType === "daily" || editScheduleType === "weekly")) {
+      if (editEndsType === "on" && !editEndsOnDate) {
+        return;
+      }
+      if (editEndsType === "after" && (!editEndsAfterOccurrences || editEndsAfterOccurrences < 1)) {
+        return;
+      }
+    }
 
     setIsSaving(true);
     try {
@@ -191,6 +216,20 @@ export default function ScheduledTestsPage() {
       }
       if (editScheduleType === "weekly") {
         updateData.scheduledDays = editScheduleDays;
+      }
+      // Add end options for recurring schedules
+      if (editScheduleType === "daily" || editScheduleType === "weekly") {
+        updateData.endsType = editEndsType;
+        if (editEndsType === "on" && editEndsOnDate) {
+          updateData.endsOnDate = format(editEndsOnDate, "yyyy-MM-dd");
+        } else {
+          updateData.endsOnDate = null;
+        }
+        if (editEndsType === "after") {
+          updateData.endsAfterOccurrences = editEndsAfterOccurrences;
+        } else {
+          updateData.endsAfterOccurrences = null;
+        }
       }
 
       const response = await fetch(api.endpoints.scheduledTests.update(editingTest.id), {
@@ -314,19 +353,34 @@ export default function ScheduledTestsPage() {
   };
 
   const getScheduleDescription = (test: ScheduledTest) => {
+    let description = "";
     switch (test.schedule_type) {
       case "once":
         return `Once on ${formatDate(test.scheduled_date!)} at ${formatTime(test.scheduled_time)}`;
       case "daily":
-        return `Daily at ${formatTime(test.scheduled_time)}`;
+        description = `Daily at ${formatTime(test.scheduled_time)}`;
+        break;
       case "weekly":
         const days = test.scheduled_days
           ?.map((d) => dayNames[d])
           .join(", ");
-        return `Every ${days} at ${formatTime(test.scheduled_time)}`;
+        description = `Every ${days} at ${formatTime(test.scheduled_time)}`;
+        break;
       default:
         return "";
     }
+    
+    // Add end info for recurring schedules (daily/weekly)
+    if ((test.schedule_type === "daily" || test.schedule_type === "weekly") && test.ends_type) {
+      if (test.ends_type === "on" && test.ends_on_date) {
+        description += ` (until ${formatDate(test.ends_on_date)})`;
+      } else if (test.ends_type === "after" && test.ends_after_occurrences) {
+        const remaining = test.ends_after_occurrences - (test.completed_occurrences || 0);
+        description += ` (${remaining} runs left)`;
+      }
+    }
+    
+    return description;
   };
 
   const getTotalTestCases = (batches: Batch[]) => {
@@ -626,9 +680,67 @@ export default function ScheduledTestsPage() {
                     onChange={(e) => setEditScheduleTime(e.target.value)}
                   />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  This test will run every day at the specified time in your local timezone.
-                </p>
+                
+                {/* Ends Options */}
+                <div className="space-y-3 pt-2 border-t">
+                  <Label className="flex items-center gap-2">
+                    <StopCircle className="h-4 w-4" />
+                    Ends
+                  </Label>
+                  <RadioGroup 
+                    value={editEndsType} 
+                    onValueChange={(v) => setEditEndsType(v as "never" | "on" | "after")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="never" id="edit-daily-never" />
+                      <Label htmlFor="edit-daily-never" className="font-normal cursor-pointer">Never</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="on" id="edit-daily-on" />
+                      <Label htmlFor="edit-daily-on" className="font-normal cursor-pointer">On</Label>
+                      {editEndsType === "on" && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-2 h-8">
+                              {editEndsOnDate ? format(editEndsOnDate, "PP") : "Select date"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <CalendarComponent
+                              mode="single"
+                              selected={editEndsOnDate}
+                              onSelect={setEditEndsOnDate}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return date < today;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="after" id="edit-daily-after" />
+                      <Label htmlFor="edit-daily-after" className="font-normal cursor-pointer">After</Label>
+                      {editEndsType === "after" && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={editEndsAfterOccurrences}
+                            onChange={(e) => setEditEndsAfterOccurrences(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-20 h-8"
+                          />
+                          <span className="text-sm text-muted-foreground">occurrences</span>
+                        </div>
+                      )}
+                    </div>
+                  </RadioGroup>
+                </div>
               </TabsContent>
 
               {/* Weekly - Days & Time */}
@@ -660,6 +772,67 @@ export default function ScheduledTestsPage() {
                     onChange={(e) => setEditScheduleTime(e.target.value)}
                   />
                 </div>
+
+                {/* Ends Options */}
+                <div className="space-y-3 pt-2 border-t">
+                  <Label className="flex items-center gap-2">
+                    <StopCircle className="h-4 w-4" />
+                    Ends
+                  </Label>
+                  <RadioGroup 
+                    value={editEndsType} 
+                    onValueChange={(v) => setEditEndsType(v as "never" | "on" | "after")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="never" id="edit-weekly-never" />
+                      <Label htmlFor="edit-weekly-never" className="font-normal cursor-pointer">Never</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="on" id="edit-weekly-on" />
+                      <Label htmlFor="edit-weekly-on" className="font-normal cursor-pointer">On</Label>
+                      {editEndsType === "on" && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-2 h-8">
+                              {editEndsOnDate ? format(editEndsOnDate, "PP") : "Select date"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <CalendarComponent
+                              mode="single"
+                              selected={editEndsOnDate}
+                              onSelect={setEditEndsOnDate}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return date < today;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="after" id="edit-weekly-after" />
+                      <Label htmlFor="edit-weekly-after" className="font-normal cursor-pointer">After</Label>
+                      {editEndsType === "after" && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={editEndsAfterOccurrences}
+                            onChange={(e) => setEditEndsAfterOccurrences(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-20 h-8"
+                          />
+                          <span className="text-sm text-muted-foreground">occurrences</span>
+                        </div>
+                      )}
+                    </div>
+                  </RadioGroup>
+                </div>
               </TabsContent>
             </Tabs>
 
@@ -680,6 +853,18 @@ export default function ScheduledTestsPage() {
                     ? `Every ${editScheduleDays.map(d => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")} at ${editScheduleTime}`
                     : "Not configured"}
                 </p>
+                {(editScheduleType === "daily" || editScheduleType === "weekly") && (
+                  <p>
+                    <strong>Ends:</strong>{" "}
+                    {editEndsType === "never"
+                      ? "Never"
+                      : editEndsType === "on" && editEndsOnDate
+                      ? `On ${format(editEndsOnDate, "PPP")}`
+                      : editEndsType === "after"
+                      ? `After ${editEndsAfterOccurrences} occurrence${editEndsAfterOccurrences > 1 ? "s" : ""}`
+                      : "Not configured"}
+                  </p>
+                )}
               </div>
             </div>
           </div>

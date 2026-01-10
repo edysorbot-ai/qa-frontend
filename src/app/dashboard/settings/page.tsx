@@ -9,10 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Check, Loader2, X, Bell, Mail, Trash2, Users, Eye, EyeOff, Plug } from "lucide-react";
+import { Plus, Check, Loader2, X, Bell, Mail, Trash2, Users, Eye, EyeOff, Plug, MessageSquare, AlertCircle, CheckCircle, CreditCard, Infinity, Package, Gift } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "haptik";
+type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "haptik" | "bolna" | "livekit";
 
 interface ProviderConfig {
   key: Provider;
@@ -20,7 +20,8 @@ interface ProviderConfig {
   description: string;
 }
 
-const providers: ProviderConfig[] = [
+// All available providers - will be filtered by enabled status from backend
+const allProviders: ProviderConfig[] = [
   {
     key: "elevenlabs",
     name: "ElevenLabs",
@@ -41,13 +42,34 @@ const providers: ProviderConfig[] = [
     name: "Haptik",
     description: "Connect your Haptik conversational AI bots",
   },
-  // OpenAI Realtime is hidden until WebSocket caller implementation is complete
-  // {
-  //   key: "openai_realtime",
-  //   name: "OpenAI Realtime",
-  //   description: "Connect OpenAI Realtime voice API",
-  // },
+  {
+    key: "bolna",
+    name: "Bolna AI",
+    description: "Connect your Bolna AI voice agents",
+  },
+  {
+    key: "livekit",
+    name: "LiveKit",
+    description: "Connect your LiveKit voice agents",
+  },
+  {
+    key: "openai_realtime",
+    name: "OpenAI Realtime",
+    description: "Connect OpenAI Realtime voice API",
+  },
 ];
+
+// Provider key mapping from backend to frontend
+const providerKeyMap: Record<string, Provider> = {
+  'elevenlabs': 'elevenlabs',
+  'retell': 'retell',
+  'vapi': 'vapi',
+  'haptik': 'haptik',
+  'bolna': 'bolna',
+  'livekit': 'livekit',
+  'openai-realtime': 'openai_realtime',
+  'custom': 'vapi', // Map custom to vapi or handle separately
+};
 
 interface Integration {
   id: string;
@@ -68,6 +90,8 @@ interface ProviderState {
   integration: Integration | null;
   isEditing: boolean;
   apiKeyInput: string;
+  apiSecretInput: string; // For LiveKit
+  hostInput: string; // For LiveKit
   showApiKey: boolean;
   isLoading: boolean;
   isValidating: boolean;
@@ -78,13 +102,23 @@ interface ProviderState {
 export default function SettingsPage() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  
+  // State for enabled providers from admin panel
+  const [enabledProviders, setEnabledProviders] = useState<Set<string>>(new Set());
+  const [providersLoading, setProvidersLoading] = useState(true);
+  
+  // Filter providers based on what's enabled in admin panel
+  const providers = allProviders.filter(p => enabledProviders.has(p.key));
+  
   const [providerStates, setProviderStates] = useState<Record<Provider, ProviderState>>(() => {
     const initial: Record<Provider, ProviderState> = {} as Record<Provider, ProviderState>;
-    providers.forEach((p) => {
+    allProviders.forEach((p) => {
       initial[p.key] = {
         integration: null,
         isEditing: false,
         apiKeyInput: "",
+        apiSecretInput: "",
+        hostInput: "",
         showApiKey: false,
         isLoading: false,
         isValidating: false,
@@ -110,11 +144,22 @@ export default function SettingsPage() {
     email_configs: [] as EmailConfig[],
     notify_on_test_failure: true,
     notify_on_scheduled_failure: true,
+    slack_enabled: false,
+    slack_webhook_url: "",
+    slack_channel: "",
   });
   const [newEmailInput, setNewEmailInput] = useState("");
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertsError, setAlertsError] = useState<string | null>(null);
+
+  // Slack settings state
+  const [slackWebhookInput, setSlackWebhookInput] = useState("");
+  const [slackChannelInput, setSlackChannelInput] = useState("");
+  const [slackTesting, setSlackTesting] = useState(false);
+  const [slackSaving, setSlackSaving] = useState(false);
+  const [slackError, setSlackError] = useState<string | null>(null);
+  const [slackSuccess, setSlackSuccess] = useState<string | null>(null);
 
   // Team members state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -129,6 +174,142 @@ export default function SettingsPage() {
     password: "",
   });
   const [showPassword, setShowPassword] = useState(false);
+
+  // Subscription state
+  interface SubscriptionData {
+    has_subscription: boolean;
+    current_credits: number;
+    total_credits_purchased: number;
+    total_credits_used: number;
+    subscription_started?: string;
+    package_expires_at?: string;
+    package: {
+      id: string;
+      name: string;
+      description?: string;
+      credits: number;
+      price_usd: number;
+      validity_days: number;
+      max_team_members: number;
+      is_unlimited: boolean;
+    } | null;
+    features: Record<string, boolean>;
+  }
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+
+  // Referral code state
+  const [referralCode, setReferralCode] = useState("");
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [referralError, setReferralError] = useState<string | null>(null);
+  const [referralSuccess, setReferralSuccess] = useState<string | null>(null);
+  const [hasUsedReferral, setHasUsedReferral] = useState(false);
+
+  // Apply referral code
+  const applyReferralCode = async () => {
+    if (!referralCode.trim()) return;
+    
+    setReferralLoading(true);
+    setReferralError(null);
+    setReferralSuccess(null);
+    
+    try {
+      const token = await getToken();
+      if (!token) {
+        setReferralError("Please sign in to apply referral code");
+        return;
+      }
+
+      const response = await fetch(`${api.baseUrl}/api/users/referral/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ code: referralCode.toUpperCase() })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setReferralError(data.error || "Failed to apply referral code");
+        return;
+      }
+
+      setReferralSuccess(data.message || `Successfully applied! You received ${data.creditsAwarded} credits.`);
+      setReferralCode("");
+      setHasUsedReferral(true);
+      
+      // Refresh subscription data to show new credits
+      const subResponse = await fetch(`${api.baseUrl}/api/users/subscription`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (subResponse.ok) {
+        const subData = await subResponse.json();
+        setSubscription(subData);
+      }
+    } catch (error) {
+      console.error("Error applying referral code:", error);
+      setReferralError("Failed to apply referral code. Please try again.");
+    } finally {
+      setReferralLoading(false);
+    }
+  };
+
+  // Fetch subscription data
+  useEffect(() => {
+    const loadSubscription = async () => {
+      try {
+        setSubscriptionLoading(true);
+        const token = await getToken();
+        if (!token) return;
+        
+        const response = await fetch(`${api.baseUrl}/api/users/subscription`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setSubscription(data);
+        }
+      } catch (error) {
+        console.error("Error fetching subscription:", error);
+      } finally {
+        setSubscriptionLoading(false);
+      }
+    };
+
+    loadSubscription();
+  }, [getToken]);
+
+  // Fetch enabled integrations from admin panel
+  useEffect(() => {
+    const loadEnabledIntegrations = async () => {
+      try {
+        setProvidersLoading(true);
+        const response = await fetch(`${api.baseUrl}/api/enabled-integrations`);
+        if (response.ok) {
+          const data = await response.json();
+          const enabled = new Set<string>();
+          data.forEach((integration: { provider: string }) => {
+            const frontendKey = providerKeyMap[integration.provider];
+            if (frontendKey) {
+              enabled.add(frontendKey);
+            }
+          });
+          setEnabledProviders(enabled);
+        }
+      } catch (error) {
+        console.error("Error fetching enabled integrations:", error);
+        // Fallback to showing all providers if API fails
+        setEnabledProviders(new Set(allProviders.map(p => p.key)));
+      } finally {
+        setProvidersLoading(false);
+      }
+    };
+
+    loadEnabledIntegrations();
+  }, []);
 
   // Fetch existing integrations on mount
   useEffect(() => {
@@ -219,7 +400,14 @@ export default function SettingsPage() {
             email_configs: emailConfigs,
             notify_on_test_failure: settings.notify_on_test_failure ?? true,
             notify_on_scheduled_failure: settings.notify_on_scheduled_failure ?? true,
+            slack_enabled: settings.slack_enabled || false,
+            slack_webhook_url: settings.slack_webhook_url || "",
+            slack_channel: settings.slack_channel || "",
           });
+          
+          // Initialize Slack input fields
+          setSlackWebhookInput(settings.slack_webhook_url || "");
+          setSlackChannelInput(settings.slack_channel || "");
         }
       } catch (error) {
         console.error("Error fetching alert settings:", error);
@@ -492,6 +680,121 @@ export default function SettingsPage() {
     }
   };
 
+  // Slack handlers
+  const handleTestSlackConnection = async () => {
+    if (!slackWebhookInput.trim()) {
+      setSlackError("Please enter a webhook URL");
+      return;
+    }
+
+    if (!slackWebhookInput.startsWith("https://hooks.slack.com/")) {
+      setSlackError("Invalid Slack webhook URL. It should start with https://hooks.slack.com/");
+      return;
+    }
+
+    setSlackTesting(true);
+    setSlackError(null);
+    setSlackSuccess(null);
+
+    try {
+      const token = await getToken();
+      const response = await fetch(api.endpoints.alertSettings.slackTest, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          webhook_url: slackWebhookInput,
+          channel: slackChannelInput || undefined,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSlackSuccess(data.message || "Connected successfully!");
+      } else {
+        setSlackError(data.message || "Failed to connect");
+      }
+    } catch (error) {
+      setSlackError("Network error. Please try again.");
+    } finally {
+      setSlackTesting(false);
+    }
+  };
+
+  const handleSaveSlackSettings = async () => {
+    setSlackSaving(true);
+    setSlackError(null);
+    setSlackSuccess(null);
+
+    try {
+      const token = await getToken();
+      const response = await fetch(api.endpoints.alertSettings.slackUpdate, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          slack_enabled: alertSettings.slack_enabled,
+          slack_webhook_url: slackWebhookInput,
+          slack_channel: slackChannelInput || null,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setAlertSettings(prev => ({
+          ...prev,
+          slack_webhook_url: slackWebhookInput,
+          slack_channel: slackChannelInput,
+        }));
+        setSlackSuccess("Slack settings saved!");
+        setTimeout(() => setSlackSuccess(null), 3000);
+      } else {
+        setSlackError(data.message || "Failed to save settings");
+      }
+    } catch (error) {
+      setSlackError("Network error. Please try again.");
+    } finally {
+      setSlackSaving(false);
+    }
+  };
+
+  const handleToggleSlack = async (enabled: boolean) => {
+    setSlackSaving(true);
+    setSlackError(null);
+    setSlackSuccess(null);
+
+    try {
+      const token = await getToken();
+      const response = await fetch(api.endpoints.alertSettings.slackUpdate, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          slack_enabled: enabled,
+          slack_webhook_url: slackWebhookInput || alertSettings.slack_webhook_url,
+          slack_channel: slackChannelInput || alertSettings.slack_channel || null,
+        }),
+      });
+
+      if (response.ok) {
+        setAlertSettings(prev => ({ ...prev, slack_enabled: enabled }));
+      } else {
+        const data = await response.json();
+        setSlackError(data.message || "Failed to update Slack settings");
+      }
+    } catch (error) {
+      setSlackError("Network error. Please try again.");
+    } finally {
+      setSlackSaving(false);
+    }
+  };
+
   // Team member handlers
   const handleAddTeamMember = async () => {
     if (!newMemberForm.email.trim() || !newMemberForm.password.trim() || !newMemberForm.name.trim()) {
@@ -566,12 +869,29 @@ export default function SettingsPage() {
   };
 
   const handleAddApiKey = (provider: Provider) => {
-    updateProviderState(provider, { isEditing: true, apiKeyInput: "", error: null });
+    updateProviderState(provider, { isEditing: true, apiKeyInput: "", apiSecretInput: "", hostInput: "", error: null });
   };
 
   const handleSaveApiKey = async (provider: Provider) => {
     const state = providerStates[provider];
-    if (!state.apiKeyInput.trim()) return;
+    
+    // For LiveKit, combine apiKey and apiSecret into a JSON string
+    let apiKeyToSave = state.apiKeyInput.trim();
+    
+    if (provider === 'livekit') {
+      if (!state.apiKeyInput.trim() || !state.apiSecretInput.trim()) {
+        updateProviderState(provider, { error: "API Key and API Secret are required" });
+        return;
+      }
+      // Create JSON credentials for LiveKit (host will be derived from LIVEKIT_URL env or entered separately)
+      apiKeyToSave = JSON.stringify({
+        apiKey: state.apiKeyInput.trim(),
+        apiSecret: state.apiSecretInput.trim(),
+        host: state.hostInput.trim() || '', // Optional - can be derived from env
+      });
+    } else if (!apiKeyToSave) {
+      return;
+    }
 
     updateProviderState(provider, { isLoading: true, error: null });
 
@@ -585,7 +905,7 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({
           provider,
-          api_key: state.apiKeyInput,
+          api_key: apiKeyToSave,
         }),
       });
 
@@ -702,29 +1022,79 @@ export default function SettingsPage() {
               Add API Key
             </Button>
           ) : state.isEditing ? (
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Enter your API key..."
-                value={state.apiKeyInput}
-                onChange={(e) =>
-                  updateProviderState(providerConfig.key, { apiKeyInput: e.target.value })
-                }
-                className="pr-10 text-sm"
-                disabled={state.isLoading}
-              />
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded disabled:opacity-50"
-                onClick={() => handleSaveApiKey(providerConfig.key)}
-                disabled={state.isLoading || !state.apiKeyInput.trim()}
-              >
-                {state.isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-                ) : (
-                  <Check className="h-4 w-4 text-green-600" />
-                )}
-              </button>
-            </div>
+            providerConfig.key === 'livekit' ? (
+              // LiveKit needs 2 fields: API Key and API Secret
+              <div className="space-y-2">
+                <Input
+                  type="text"
+                  placeholder="API Key (e.g., APId9iCUSEZuCXi)"
+                  value={state.apiKeyInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { apiKeyInput: e.target.value })
+                  }
+                  className="text-sm"
+                  disabled={state.isLoading}
+                />
+                <Input
+                  type="password"
+                  placeholder="API Secret"
+                  value={state.apiSecretInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { apiSecretInput: e.target.value })
+                  }
+                  className="text-sm"
+                  disabled={state.isLoading}
+                />
+                <Input
+                  type="text"
+                  placeholder="LiveKit URL (e.g., wss://xxx.livekit.cloud) - Optional"
+                  value={state.hostInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { hostInput: e.target.value })
+                  }
+                  className="text-sm"
+                  disabled={state.isLoading}
+                />
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => handleSaveApiKey(providerConfig.key)}
+                  disabled={state.isLoading || !state.apiKeyInput.trim() || !state.apiSecretInput.trim()}
+                >
+                  {state.isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-2" />
+                  )}
+                  Connect
+                </Button>
+              </div>
+            ) : (
+              // Standard single API key input
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Enter your API key..."
+                  value={state.apiKeyInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { apiKeyInput: e.target.value })
+                  }
+                  className="pr-10 text-sm"
+                  disabled={state.isLoading}
+                />
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                  onClick={() => handleSaveApiKey(providerConfig.key)}
+                  disabled={state.isLoading || !state.apiKeyInput.trim()}
+                >
+                  {state.isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                  ) : (
+                    <Check className="h-4 w-4 text-green-600" />
+                  )}
+                </button>
+              </div>
+            )
           ) : (
             <div className="relative">
               <Input
@@ -780,6 +1150,10 @@ export default function SettingsPage() {
           <TabsTrigger value="integrations">
             <Plug className="mr-2 h-4 w-4" />
             Integrations
+          </TabsTrigger>
+          <TabsTrigger value="subscription">
+            <CreditCard className="mr-2 h-4 w-4" />
+            Subscription
           </TabsTrigger>
           <TabsTrigger value="alerts">
             <Bell className="mr-2 h-4 w-4" />
@@ -941,9 +1315,21 @@ export default function SettingsPage() {
             <p className="text-muted-foreground text-sm mb-4">
               Connect your voice agent providers
             </p>
-            <div className="grid gap-4 md:grid-cols-2">
-              {providers.map(renderProviderCard)}
-            </div>
+            {providersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : providers.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Plug className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No integrations are currently enabled.</p>
+                <p className="text-sm mt-1">Contact your administrator to enable providers.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {providers.map(renderProviderCard)}
+              </div>
+            )}
           </div>
         </TabsContent>
 
@@ -1102,6 +1488,307 @@ export default function SettingsPage() {
                     </div>
                   )}
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Slack Integration Card */}
+          <Card className="mt-6">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
+                    <MessageSquare className="h-5 w-5 text-purple-500" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Slack Notifications</CardTitle>
+                    <CardDescription>
+                      Receive test failure alerts in your Slack workspace
+                    </CardDescription>
+                  </div>
+                </div>
+                <Switch
+                  checked={alertSettings.slack_enabled}
+                  onCheckedChange={handleToggleSlack}
+                  disabled={alertsLoading || slackSaving || !alertSettings.slack_webhook_url}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {alertsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {slackError && (
+                    <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 dark:bg-red-950/20 p-3 rounded-md">
+                      <AlertCircle className="h-4 w-4" />
+                      {slackError}
+                    </div>
+                  )}
+
+                  {slackSuccess && (
+                    <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 dark:bg-green-950/20 p-3 rounded-md">
+                      <CheckCircle className="h-4 w-4" />
+                      {slackSuccess}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="slack-webhook" className="text-sm font-medium">
+                        Webhook URL
+                      </Label>
+                      <Input
+                        id="slack-webhook"
+                        type="url"
+                        placeholder="https://hooks.slack.com/services/..."
+                        value={slackWebhookInput}
+                        onChange={(e) => {
+                          setSlackWebhookInput(e.target.value);
+                          setSlackError(null);
+                          setSlackSuccess(null);
+                        }}
+                        disabled={slackSaving || slackTesting}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Create an incoming webhook in your Slack workspace settings
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="slack-channel" className="text-sm font-medium">
+                        Channel Override (Optional)
+                      </Label>
+                      <Input
+                        id="slack-channel"
+                        type="text"
+                        placeholder="#alerts or leave empty for webhook default"
+                        value={slackChannelInput}
+                        onChange={(e) => {
+                          setSlackChannelInput(e.target.value);
+                          setSlackError(null);
+                          setSlackSuccess(null);
+                        }}
+                        disabled={slackSaving || slackTesting}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Override the default channel set in the webhook
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        onClick={handleTestSlackConnection}
+                        disabled={slackTesting || slackSaving || !slackWebhookInput.trim()}
+                      >
+                        {slackTesting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Testing...
+                          </>
+                        ) : (
+                          "Test Connection"
+                        )}
+                      </Button>
+                      <Button
+                        onClick={handleSaveSlackSettings}
+                        disabled={slackSaving || slackTesting || !slackWebhookInput.trim()}
+                      >
+                        {slackSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save Slack Settings"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Subscription Tab */}
+        <TabsContent value="subscription" className="space-y-4">
+          {/* Referral Code Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gift className="h-5 w-5" />
+                Referral Code
+              </CardTitle>
+              <CardDescription>
+                Have a referral code? Apply it to receive bonus credits!
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {hasUsedReferral ? (
+                <div className="flex items-center gap-2 text-green-600 bg-green-50 dark:bg-green-950 p-4 rounded-lg">
+                  <CheckCircle className="h-5 w-5" />
+                  <span>You have already used a referral code. Thank you!</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter referral code (e.g., REF123ABC)"
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                      className="font-mono"
+                      disabled={referralLoading}
+                    />
+                    <Button 
+                      onClick={applyReferralCode} 
+                      disabled={referralLoading || !referralCode.trim()}
+                    >
+                      {referralLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        "Apply"
+                      )}
+                    </Button>
+                  </div>
+                  
+                  {referralError && (
+                    <div className="flex items-center gap-2 text-red-600 bg-red-50 dark:bg-red-950 p-3 rounded-lg text-sm">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                      <span>{referralError}</span>
+                    </div>
+                  )}
+                  
+                  {referralSuccess && (
+                    <div className="flex items-center gap-2 text-green-600 bg-green-50 dark:bg-green-950 p-3 rounded-lg text-sm">
+                      <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                      <span>{referralSuccess}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Subscription Details Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Your Subscription
+              </CardTitle>
+              <CardDescription>
+                View your current subscription plan and usage
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {subscriptionLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : !subscription?.has_subscription ? (
+                <div className="text-center py-8 space-y-4">
+                  <div className="w-16 h-16 mx-auto bg-muted rounded-full flex items-center justify-center">
+                    <CreditCard className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-lg">No Active Subscription</h3>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      You don&apos;t have an active subscription yet. All features are currently available.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Package Info */}
+                  <div className="p-4 border rounded-lg bg-gradient-to-r from-primary/5 to-primary/10">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-lg">{subscription.package?.name}</h3>
+                        {subscription.package?.description && (
+                          <p className="text-muted-foreground text-sm mt-1">{subscription.package.description}</p>
+                        )}
+                      </div>
+                      <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-medium">
+                        Active
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Credits Usage */}
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground">Current Credits</p>
+                      <p className="text-2xl font-bold mt-1 flex items-center gap-2">
+                        {subscription.package?.is_unlimited ? (
+                          <><Infinity className="h-6 w-6" /> Unlimited</>
+                        ) : (
+                          subscription.current_credits.toLocaleString()
+                        )}
+                      </p>
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground">Credits Used</p>
+                      <p className="text-2xl font-bold mt-1">{subscription.total_credits_used.toLocaleString()}</p>
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground">Team Members</p>
+                      <p className="text-2xl font-bold mt-1">
+                        {subscription.package?.max_team_members === -1 ? 'Unlimited' : `Up to ${subscription.package?.max_team_members}`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Subscription Details */}
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Subscription Details</h4>
+                    <div className="grid gap-2 text-sm">
+                      {subscription.subscription_started && (
+                        <div className="flex justify-between py-2 border-b">
+                          <span className="text-muted-foreground">Started</span>
+                          <span>{new Date(subscription.subscription_started).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                      {subscription.package_expires_at && (
+                        <div className="flex justify-between py-2 border-b">
+                          <span className="text-muted-foreground">Expires</span>
+                          <span>{new Date(subscription.package_expires_at).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-muted-foreground">Validity</span>
+                        <span>{subscription.package?.validity_days} days</span>
+                      </div>
+                      <div className="flex justify-between py-2">
+                        <span className="text-muted-foreground">Price</span>
+                        <span className="font-medium">${subscription.package?.price_usd}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Features */}
+                  {subscription.features && Object.keys(subscription.features).length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Included Features</h4>
+                      <div className="grid gap-2 grid-cols-2 md:grid-cols-3">
+                        {Object.entries(subscription.features)
+                          .filter(([_, enabled]) => enabled)
+                          .map(([key]) => (
+                            <div key={key} className="flex items-center gap-2 text-sm">
+                              <Check className="h-4 w-4 text-green-500" />
+                              <span className="capitalize">{key.replace(/_/g, ' ')}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>

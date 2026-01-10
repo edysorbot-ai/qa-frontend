@@ -107,6 +107,8 @@ export const api = {
       update: `${API_BASE_URL}/api/alert-settings`,
       addEmail: `${API_BASE_URL}/api/alert-settings/add-email`,
       removeEmail: `${API_BASE_URL}/api/alert-settings/remove-email`,
+      slackUpdate: `${API_BASE_URL}/api/alert-settings/slack`,
+      slackTest: `${API_BASE_URL}/api/alert-settings/slack/test`,
     },
 
     // Team Members
@@ -116,7 +118,23 @@ export const api = {
       delete: (id: string) => `${API_BASE_URL}/api/team-members/${id}`,
       checkRole: `${API_BASE_URL}/api/team-members/check-role`,
     },
+
+    // Realtime Monitoring
+    monitoring: {
+      sessions: `${API_BASE_URL}/api/monitoring/sessions`,
+      createSession: `${API_BASE_URL}/api/monitoring/sessions`,
+      startMonitoring: (agentId: string) => `${API_BASE_URL}/api/monitoring/sessions/${agentId}/start`,
+      stopMonitoring: (agentId: string) => `${API_BASE_URL}/api/monitoring/sessions/${agentId}/stop`,
+      calls: `${API_BASE_URL}/api/monitoring/calls`,
+      call: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}`,
+      reanalyze: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}/reanalyze`,
+      insights: (agentId: string) => `${API_BASE_URL}/api/monitoring/insights/${agentId}`,
+      deleteCall: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}`,
+    },
   },
+  
+  // WebSocket URL for real-time updates
+  wsUrl: API_BASE_URL.replace('http', 'ws') + '/ws',
 };
 
 export default api;

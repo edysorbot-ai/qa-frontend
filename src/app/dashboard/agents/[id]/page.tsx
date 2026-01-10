@@ -75,7 +75,7 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import { TestFlowTab, WorkflowExecutionPlan, TestCaseData as WorkflowTestCase } from "@/components/workflow";
 
-type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime";
+type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom" | "bolna" | "livekit" | "haptik";
 
 interface AgentDetails {
   id: string;
@@ -207,6 +207,10 @@ const providerNames: Record<Provider, string> = {
   retell: "Retell",
   vapi: "VAPI",
   openai_realtime: "OpenAI Realtime",
+  custom: "Custom Agent",
+  bolna: "Bolna AI",
+  livekit: "LiveKit",
+  haptik: "Haptik",
 };
 
 const priorityColors: Record<string, string> = {
@@ -232,6 +236,10 @@ const providerColors: Record<Provider, string> = {
   retell: "bg-slate-100 text-slate-800",
   vapi: "bg-slate-100 text-slate-800",
   openai_realtime: "bg-slate-100 text-slate-800",
+  custom: "bg-purple-100 text-purple-800",
+  bolna: "bg-emerald-100 text-emerald-800",
+  livekit: "bg-blue-100 text-blue-800",
+  haptik: "bg-orange-100 text-orange-800",
 };
 
 const severityColors: Record<string, string> = {

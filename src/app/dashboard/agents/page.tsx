@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom";
+type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom" | "bolna" | "livekit" | "haptik";
 
 interface Integration {
   id: string;
@@ -88,6 +88,9 @@ const providerNames: Record<Provider, string> = {
   vapi: "VAPI",
   openai_realtime: "OpenAI Realtime",
   custom: "Custom Agent",
+  bolna: "Bolna AI",
+  livekit: "LiveKit",
+  haptik: "Haptik",
 };
 
 const providerColors: Record<Provider, string> = {
@@ -96,6 +99,9 @@ const providerColors: Record<Provider, string> = {
   vapi: "bg-slate-100 text-slate-800",
   openai_realtime: "bg-slate-100 text-slate-800",
   custom: "bg-purple-100 text-purple-800",
+  bolna: "bg-emerald-100 text-emerald-800",
+  livekit: "bg-blue-100 text-blue-800",
+  haptik: "bg-orange-100 text-orange-800",
 };
 
 // LLM Models available for custom agents

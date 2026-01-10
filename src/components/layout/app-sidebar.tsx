@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -34,6 +35,7 @@ import {
   ChevronUp,
   Users,
   CalendarClock,
+  Activity,
 } from "lucide-react";
 
 const menuItems = [
@@ -57,6 +59,11 @@ const menuItems = [
     icon: CalendarClock,
     href: "/dashboard/scheduled-tests",
   },
+  // {
+  //   title: "Realtime Monitoring",
+  //   icon: Activity,
+  //   href: "/dashboard/monitoring",
+  // },
   {
     title: "Settings",
     icon: Settings,
@@ -69,6 +76,12 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
   const { signOut } = useClerk();
   const pathname = usePathname();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch with Radix UI components
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -116,38 +129,48 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
           <SidebarFooter className="border-t border-sidebar-border">
             <SidebarMenu>
               <SidebarMenuItem>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton className="w-full">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={user?.imageUrl} />
-                        <AvatarFallback>
-                          {user?.firstName?.charAt(0) || "U"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="flex-1 text-left truncate">
-                        {user?.fullName || user?.primaryEmailAddress?.emailAddress}
-                      </span>
-                      <ChevronUp className="h-4 w-4" />
-                    </SidebarMenuButton>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    side="top"
-                    className="w-[--radix-popper-anchor-width]"
-                  >
-                    <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Settings
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleSignOut}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Sign out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {mounted ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <SidebarMenuButton className="w-full">
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={user?.imageUrl} />
+                          <AvatarFallback>
+                            {user?.firstName?.charAt(0) || "U"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="flex-1 text-left truncate">
+                          {user?.fullName || user?.primaryEmailAddress?.emailAddress}
+                        </span>
+                        <ChevronUp className="h-4 w-4" />
+                      </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      side="top"
+                      className="w-[--radix-popper-anchor-width]"
+                    >
+                      <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleSignOut}>
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Sign out
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <SidebarMenuButton className="w-full">
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback>U</AvatarFallback>
+                    </Avatar>
+                    <span className="flex-1 text-left truncate">Loading...</span>
+                    <ChevronUp className="h-4 w-4" />
+                  </SidebarMenuButton>
+                )}
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarFooter>

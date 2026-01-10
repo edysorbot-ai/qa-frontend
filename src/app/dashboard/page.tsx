@@ -104,6 +104,14 @@ export default function DashboardPage() {
         return "bg-blue-100 text-blue-700";
       case "elevenlabs":
         return "bg-emerald-100 text-emerald-700";
+      case "bolna":
+        return "bg-emerald-100 text-emerald-700";
+      case "livekit":
+        return "bg-blue-100 text-blue-700";
+      case "haptik":
+        return "bg-orange-100 text-orange-700";
+      case "custom":
+        return "bg-purple-100 text-purple-700";
       default:
         return "bg-slate-100 text-slate-700";
     }
@@ -344,7 +352,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm">Add Voice Agent</p>
-                  <p className="text-xs text-muted-foreground">Connect ElevenLabs, Retell, or VAPI</p>
+                  <p className="text-xs text-muted-foreground">Connect ElevenLabs, Retell, VAPI, Bolna, or LiveKit</p>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>

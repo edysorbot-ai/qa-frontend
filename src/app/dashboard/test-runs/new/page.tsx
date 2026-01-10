@@ -15,9 +15,20 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -28,14 +39,16 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { format } from "date-fns";
 import { api } from "@/lib/api";
 import Link from "next/link";
+import { useSubscriptionError, SubscriptionError, SubscriptionErrorResult } from "@/hooks/use-subscription-error";
 
 interface Agent {
   id: string;
@@ -120,6 +133,7 @@ function NewTestRunContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedAgentId = searchParams.get("agent_id");
+  const { processApiResponse } = useSubscriptionError();
 
   // Selection state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -178,7 +192,15 @@ function NewTestRunContent() {
   const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleDays, setScheduleDays] = useState<number[]>([]);
+  const [scheduleEndsType, setScheduleEndsType] = useState<"never" | "on" | "after">("never");
+  const [scheduleEndsOnDate, setScheduleEndsOnDate] = useState<Date | undefined>(undefined);
+  const [scheduleEndsAfterOccurrences, setScheduleEndsAfterOccurrences] = useState<number>(1);
   const [isScheduling, setIsScheduling] = useState(false);
+
+  // Subscription dialog state
+  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState<SubscriptionErrorResult | null>(null);
+  const [isCheckingSubscription, setIsCheckingSubscription] = useState(false);
 
   // Helper to get minimum allowed time (30 min from now)
   const getMinTime = (selectedDate?: Date) => {
@@ -572,7 +594,64 @@ function NewTestRunContent() {
     return batches;
   };
 
+  // Check subscription status before planning batches
+  const checkSubscriptionStatus = async (): Promise<boolean> => {
+    setIsCheckingSubscription(true);
+    try {
+      const token = await getToken();
+      const testCaseCount = selectedTestCaseIds.size;
+      const totalCreditsNeeded = testCaseCount * 10; // Assuming 10 credits per test
+
+      // Make a preflight check to the backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/test-execution/check-credits`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testCaseCount: testCaseCount,
+          creditsNeeded: totalCreditsNeeded,
+        }),
+      });
+
+      if (response.status === 402) {
+        const errorData = await response.json();
+        setSubscriptionError({
+          type: "error",
+          code: errorData.error?.code || "INSUFFICIENT_CREDITS",
+          message: errorData.error?.message || "You don't have enough credits to run these tests",
+          details: errorData.error?.details || {},
+        });
+        setShowSubscriptionDialog(true);
+        return false;
+      }
+
+      // For other errors (401, 404, 500, etc.), allow the action to proceed
+      // The actual start-batched endpoint will do the real check and show proper errors
+      if (!response.ok) {
+        console.warn("Credit check returned non-402 error, proceeding anyway:", response.status);
+        return true;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Subscription check failed:", error);
+      // If the check endpoint doesn't exist or network error, fall back to allowing the action
+      // The actual start-batched endpoint will do the real check
+      return true;
+    } finally {
+      setIsCheckingSubscription(false);
+    }
+  };
+
   const handlePlanBatches = async () => {
+    // First check subscription status
+    const hasValidSubscription = await checkSubscriptionStatus();
+    if (!hasValidSubscription) {
+      return; // Stop if subscription check fails - dialog is already shown
+    }
+
     setIsAnalyzingBatches(true);
     setBatchAnalysis(null);
     try {
@@ -666,6 +745,16 @@ function NewTestRunContent() {
         const data = await response.json();
         router.push(`/dashboard/test-runs/${data.testRunId}`);
       } else {
+        // Check for subscription/credit errors first
+        const { isSubscriptionError: isSubError, errorResult } = await processApiResponse(response, { showToast: true });
+        if (isSubError) {
+          // Set a user-friendly error message for the UI
+          if (errorResult) {
+            setError(`${errorResult.title}: ${errorResult.description}`);
+          }
+          return;
+        }
+        
         const errorData = await response.json();
         console.error("Batched test error response:", response.status, errorData);
         setError(errorData.error || `Failed to start batched test run (${response.status})`);
@@ -695,6 +784,17 @@ function NewTestRunContent() {
     if (scheduleType === "weekly" && scheduleDays.length === 0) {
       setError("Please select at least one day for the weekly schedule");
       return;
+    }
+    // Validate end options for recurring schedules
+    if ((scheduleType === "daily" || scheduleType === "weekly")) {
+      if (scheduleEndsType === "on" && !scheduleEndsOnDate) {
+        setError("Please select an end date");
+        return;
+      }
+      if (scheduleEndsType === "after" && (!scheduleEndsAfterOccurrences || scheduleEndsAfterOccurrences < 1)) {
+        setError("Number of occurrences must be at least 1");
+        return;
+      }
     }
 
     setIsScheduling(true);
@@ -738,6 +838,16 @@ function NewTestRunContent() {
       }
       if (scheduleType === "weekly") {
         scheduleData.scheduledDays = scheduleDays;
+      }
+      // Add end options for recurring schedules
+      if (scheduleType === "daily" || scheduleType === "weekly") {
+        scheduleData.endsType = scheduleEndsType;
+        if (scheduleEndsType === "on" && scheduleEndsOnDate) {
+          scheduleData.endsOnDate = format(scheduleEndsOnDate, "yyyy-MM-dd");
+        }
+        if (scheduleEndsType === "after") {
+          scheduleData.endsAfterOccurrences = scheduleEndsAfterOccurrences;
+        }
       }
 
       const response = await fetch(api.endpoints.scheduledTests.create, {
@@ -1386,9 +1496,14 @@ function NewTestRunContent() {
               <Button
                 size="lg"
                 onClick={handlePlanBatches}
-                disabled={selectedTestCaseIds.size === 0 || isStartingTests || isAnalyzingBatches}
+                disabled={selectedTestCaseIds.size === 0 || isStartingTests || isAnalyzingBatches || isCheckingSubscription}
               >
-                {isAnalyzingBatches ? (
+                {isCheckingSubscription ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Checking Credits...
+                  </>
+                ) : isAnalyzingBatches ? (
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     AI Analyzing Batches...
@@ -1832,9 +1947,67 @@ function NewTestRunContent() {
                     onChange={(e) => setScheduleTime(e.target.value)}
                   />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  This test will run every day at the specified time in your local timezone.
-                </p>
+                
+                {/* Ends Options */}
+                <div className="space-y-3 pt-2 border-t">
+                  <Label className="flex items-center gap-2">
+                    <StopCircle className="h-4 w-4" />
+                    Ends
+                  </Label>
+                  <RadioGroup 
+                    value={scheduleEndsType} 
+                    onValueChange={(v) => setScheduleEndsType(v as "never" | "on" | "after")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="never" id="daily-never" />
+                      <Label htmlFor="daily-never" className="font-normal cursor-pointer">Never</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="on" id="daily-on" />
+                      <Label htmlFor="daily-on" className="font-normal cursor-pointer">On</Label>
+                      {scheduleEndsType === "on" && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-2 h-8">
+                              {scheduleEndsOnDate ? format(scheduleEndsOnDate, "PP") : "Select date"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <CalendarComponent
+                              mode="single"
+                              selected={scheduleEndsOnDate}
+                              onSelect={setScheduleEndsOnDate}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return date < today;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="after" id="daily-after" />
+                      <Label htmlFor="daily-after" className="font-normal cursor-pointer">After</Label>
+                      {scheduleEndsType === "after" && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={scheduleEndsAfterOccurrences}
+                            onChange={(e) => setScheduleEndsAfterOccurrences(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-20 h-8"
+                          />
+                          <span className="text-sm text-muted-foreground">occurrences</span>
+                        </div>
+                      )}
+                    </div>
+                  </RadioGroup>
+                </div>
               </TabsContent>
 
               {/* Weekly - Days & Time */}
@@ -1866,6 +2039,67 @@ function NewTestRunContent() {
                     onChange={(e) => setScheduleTime(e.target.value)}
                   />
                 </div>
+
+                {/* Ends Options */}
+                <div className="space-y-3 pt-2 border-t">
+                  <Label className="flex items-center gap-2">
+                    <StopCircle className="h-4 w-4" />
+                    Ends
+                  </Label>
+                  <RadioGroup 
+                    value={scheduleEndsType} 
+                    onValueChange={(v) => setScheduleEndsType(v as "never" | "on" | "after")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="never" id="weekly-never" />
+                      <Label htmlFor="weekly-never" className="font-normal cursor-pointer">Never</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="on" id="weekly-on" />
+                      <Label htmlFor="weekly-on" className="font-normal cursor-pointer">On</Label>
+                      {scheduleEndsType === "on" && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-2 h-8">
+                              {scheduleEndsOnDate ? format(scheduleEndsOnDate, "PP") : "Select date"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <CalendarComponent
+                              mode="single"
+                              selected={scheduleEndsOnDate}
+                              onSelect={setScheduleEndsOnDate}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return date < today;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="after" id="weekly-after" />
+                      <Label htmlFor="weekly-after" className="font-normal cursor-pointer">After</Label>
+                      {scheduleEndsType === "after" && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={scheduleEndsAfterOccurrences}
+                            onChange={(e) => setScheduleEndsAfterOccurrences(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-20 h-8"
+                          />
+                          <span className="text-sm text-muted-foreground">occurrences</span>
+                        </div>
+                      )}
+                    </div>
+                  </RadioGroup>
+                </div>
               </TabsContent>
             </Tabs>
 
@@ -1886,6 +2120,18 @@ function NewTestRunContent() {
                     ? `Every ${scheduleDays.map(d => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")} at ${scheduleTime}`
                     : "Not configured"}
                 </p>
+                {(scheduleType === "daily" || scheduleType === "weekly") && (
+                  <p>
+                    <strong>Ends:</strong>{" "}
+                    {scheduleEndsType === "never"
+                      ? "Never"
+                      : scheduleEndsType === "on" && scheduleEndsOnDate
+                      ? `On ${format(scheduleEndsOnDate, "PPP")}`
+                      : scheduleEndsType === "after"
+                      ? `After ${scheduleEndsAfterOccurrences} occurrence${scheduleEndsAfterOccurrences > 1 ? "s" : ""}`
+                      : "Not configured"}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1929,6 +2175,72 @@ function NewTestRunContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Subscription/Credits Error Dialog */}
+      <AlertDialog open={showSubscriptionDialog} onOpenChange={setShowSubscriptionDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              {subscriptionError?.code === 'NO_SUBSCRIPTION' 
+                ? 'Subscription Required' 
+                : subscriptionError?.code === 'SUBSCRIPTION_INACTIVE'
+                ? 'Subscription Expired'
+                : 'Insufficient Credits'}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {subscriptionError?.message || 'You need to upgrade your plan to continue.'}
+                </p>
+                
+                {subscriptionError?.details && (
+                  <div className="bg-muted rounded-lg p-4 space-y-2">
+                    {subscriptionError.details.packageName && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Current Package:</span>
+                        <span className="font-medium">{subscriptionError.details.packageName}</span>
+                      </div>
+                    )}
+                    {subscriptionError.details.available !== undefined && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Available Credits:</span>
+                        <span className="font-medium text-amber-600">{subscriptionError.details.available}</span>
+                      </div>
+                    )}
+                    {subscriptionError.details.required !== undefined && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Required Credits:</span>
+                        <span className="font-medium">{subscriptionError.details.required}</span>
+                      </div>
+                    )}
+                    {subscriptionError.details.testCaseCount !== undefined && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Test Cases:</span>
+                        <span className="font-medium">{subscriptionError.details.testCaseCount}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => router.push('/dashboard/settings?tab=billing')}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <CreditCard className="mr-2 h-4 w-4" />
+              {subscriptionError?.code === 'NO_SUBSCRIPTION' 
+                ? 'Get a Plan' 
+                : subscriptionError?.code === 'SUBSCRIPTION_INACTIVE'
+                ? 'Renew Subscription'
+                : 'Upgrade Plan'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
