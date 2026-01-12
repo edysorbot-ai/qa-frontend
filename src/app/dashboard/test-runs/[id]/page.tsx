@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -629,6 +629,7 @@ export default function TestRunDetailPage() {
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [selectedPromptVersions, setSelectedPromptVersions] = useState<string[]>([]);
   const [showPromptComparison, setShowPromptComparison] = useState(false);
+  const comparisonSectionRef = useRef<HTMLDivElement>(null);
 
   // Fetch test run status
   const fetchStatus = useCallback(async () => {
@@ -2077,7 +2078,18 @@ export default function TestRunDetailPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setShowPromptComparison(!showPromptComparison)}
+                          onClick={() => {
+                            const newValue = !showPromptComparison;
+                            setShowPromptComparison(newValue);
+                            if (newValue) {
+                              setTimeout(() => {
+                                comparisonSectionRef.current?.scrollIntoView({ 
+                                  behavior: 'smooth', 
+                                  block: 'start' 
+                                });
+                              }, 100);
+                            }
+                          }}
                         >
                           <GitCompare className="h-4 w-4 mr-2" />
                           {showPromptComparison ? "Hide Comparison" : "Compare Selected"}
@@ -2190,7 +2202,7 @@ export default function TestRunDetailPage() {
                     const modifiedCount = diff.filter(l => l.type === 'modified').length;
                     
                     return (
-                      <div className="mt-6 border rounded-lg overflow-hidden">
+                      <div ref={comparisonSectionRef} className="mt-6 border rounded-lg overflow-hidden">
                         <div className="bg-muted px-4 py-3 border-b flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <GitCompare className="h-4 w-4" />

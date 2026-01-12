@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -315,6 +315,7 @@ export default function AgentDetailPage() {
   // Prompt comparison state
   const [selectedPromptVersions, setSelectedPromptVersions] = useState<string[]>([]);
   const [showPromptComparison, setShowPromptComparison] = useState(false);
+  const comparisonSectionRef = useRef<HTMLDivElement>(null);
 
   // Dynamic Variables state
   const [dynamicVariables, setDynamicVariables] = useState<DynamicVariable[]>([]);
@@ -2095,7 +2096,19 @@ export default function AgentDetailPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setShowPromptComparison(!showPromptComparison)}
+                          onClick={() => {
+                            const newValue = !showPromptComparison;
+                            setShowPromptComparison(newValue);
+                            if (newValue) {
+                              // Scroll to comparison section after state update
+                              setTimeout(() => {
+                                comparisonSectionRef.current?.scrollIntoView({ 
+                                  behavior: 'smooth', 
+                                  block: 'start' 
+                                });
+                              }, 100);
+                            }
+                          }}
                           className="flex items-center gap-1"
                         >
                           <GitCompare className="h-4 w-4" />
@@ -2218,7 +2231,7 @@ export default function AgentDetailPage() {
                     const modifiedCount = diff.filter(l => l.type === 'modified').length;
                     
                     return (
-                      <div className="mt-6 border rounded-lg overflow-hidden">
+                      <div ref={comparisonSectionRef} className="mt-6 border rounded-lg overflow-hidden">
                         <div className="bg-muted px-4 py-3 border-b flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <GitCompare className="h-4 w-4" />
