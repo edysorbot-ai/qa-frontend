@@ -195,7 +195,29 @@ function NewTestRunContent() {
   const [scheduleEndsType, setScheduleEndsType] = useState<"never" | "on" | "after">("never");
   const [scheduleEndsOnDate, setScheduleEndsOnDate] = useState<Date | undefined>(undefined);
   const [scheduleEndsAfterOccurrences, setScheduleEndsAfterOccurrences] = useState<number>(1);
+  const [scheduleTimezone, setScheduleTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [isScheduling, setIsScheduling] = useState(false);
+
+  // Common timezones for the dropdown
+  const commonTimezones = [
+    { value: "UTC", label: "UTC" },
+    { value: "America/New_York", label: "Eastern Time (ET)" },
+    { value: "America/Chicago", label: "Central Time (CT)" },
+    { value: "America/Denver", label: "Mountain Time (MT)" },
+    { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+    { value: "America/Anchorage", label: "Alaska Time (AKT)" },
+    { value: "Pacific/Honolulu", label: "Hawaii Time (HT)" },
+    { value: "Europe/London", label: "London (GMT/BST)" },
+    { value: "Europe/Paris", label: "Paris (CET/CEST)" },
+    { value: "Europe/Berlin", label: "Berlin (CET/CEST)" },
+    { value: "Asia/Dubai", label: "Dubai (GST)" },
+    { value: "Asia/Kolkata", label: "India (IST)" },
+    { value: "Asia/Singapore", label: "Singapore (SGT)" },
+    { value: "Asia/Tokyo", label: "Tokyo (JST)" },
+    { value: "Asia/Shanghai", label: "China (CST)" },
+    { value: "Australia/Sydney", label: "Sydney (AEST/AEDT)" },
+    { value: "Pacific/Auckland", label: "Auckland (NZST/NZDT)" },
+  ];
 
   // Subscription dialog state
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
@@ -827,7 +849,7 @@ function NewTestRunContent() {
         batches: formattedBatches,
         scheduleType: scheduleType,
         scheduledTime: scheduleTime,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezone: scheduleTimezone,
         enableBatching: batchingEnabled,
         enableConcurrency: concurrencyEnabled,
         concurrencyCount: concurrencyEnabled ? concurrencyCount : 1,
@@ -1934,6 +1956,21 @@ function NewTestRunContent() {
                     }}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="timezone-once">Timezone</Label>
+                  <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
+                    <SelectTrigger id="timezone-once">
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commonTimezones.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </TabsContent>
 
               {/* Daily - Time only */}
@@ -1946,6 +1983,21 @@ function NewTestRunContent() {
                     value={scheduleTime}
                     onChange={(e) => setScheduleTime(e.target.value)}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="timezone-daily">Timezone</Label>
+                  <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
+                    <SelectTrigger id="timezone-daily">
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commonTimezones.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 {/* Ends Options */}
@@ -2039,6 +2091,21 @@ function NewTestRunContent() {
                     onChange={(e) => setScheduleTime(e.target.value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="timezone-weekly">Timezone</Label>
+                  <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
+                    <SelectTrigger id="timezone-weekly">
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {commonTimezones.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 {/* Ends Options */}
                 <div className="space-y-3 pt-2 border-t">
@@ -2119,6 +2186,10 @@ function NewTestRunContent() {
                     : scheduleType === "weekly" && scheduleDays.length > 0
                     ? `Every ${scheduleDays.map(d => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")} at ${scheduleTime}`
                     : "Not configured"}
+                </p>
+                <p>
+                  <strong>Timezone:</strong>{" "}
+                  {commonTimezones.find(tz => tz.value === scheduleTimezone)?.label || scheduleTimezone}
                 </p>
                 {(scheduleType === "daily" || scheduleType === "weekly") && (
                   <p>
