@@ -111,7 +111,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
 const FEATURES: Feature[] = [
   {
     title: "100s of Test Scenarios",
-    description: "Analyse your prompt to auto-generate and run hundreds of test scenarios for evaluating your voice agents, saving you hours everyday.",
+    description: "Automatically run hundreds of test scenarios to test voice AI agents and ensure reliability.",
     icon: TestTube,
     link: "#",
     className: "md:col-span-2 md:row-span-1",
@@ -138,7 +138,7 @@ const FEATURES: Feature[] = [
   },
   {
     title: "Streamline Test Batching",
-    description: "Automatically groups and filters test cases into structured batches based on your conversation flow. Enables parallel testing across flow stages.",
+    description: "Group and filter test cases into batches for parallel agent testing, ensuring efficiency and cost saving.",
     icon: Layers,
     link: "#",
     className: "md:col-span-1",
@@ -164,7 +164,7 @@ const FEATURES: Feature[] = [
   },
   {
     title: "Evaluate Outcomes & Take Action",
-    description: "Review results, identify issues, and get actionable suggestions based on the evaluation outcomes to improve your voice agents faster.",
+    description: "Know what's working, identify test failures, issues, and get prompt suggestions to improve voice agents.",
     icon: Target,
     link: "#",
     className: "md:col-span-1",

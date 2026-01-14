@@ -2,17 +2,25 @@
 
 import { Container } from "@/components/landing/Container";
 import { Button } from "@/components/landing/Button";
-import { ArrowRight, Phone, CheckCircle2, Activity, Sparkles, Play, Mic } from "lucide-react";
+import {
+  ArrowRight,
+  Phone,
+  CheckCircle2,
+  Activity,
+  Sparkles,
+  Play,
+  Mic,
+} from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { StarField } from "@/components/landing/StarField";
 
 export function HeroSection() {
   const [waveIndex, setWaveIndex] = useState(0);
-  
+
   useEffect(() => {
     const interval = setInterval(() => {
-      setWaveIndex(prev => (prev + 1) % 20);
+      setWaveIndex((prev) => (prev + 1) % 20);
     }, 100);
     return () => clearInterval(interval);
   }, []);
@@ -20,56 +28,66 @@ export function HeroSection() {
   return (
     <section className="relative pt-48 pb-24 overflow-hidden">
       <StarField />
-      
+
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-[#5E6AD2] opacity-[0.12] blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[1200px] h-[600px] bg-[#5F6BD3] opacity-[0.08] blur-[150px] rounded-full pointer-events-none z-0" />
 
       <Container className="relative z-10 flex flex-col items-center text-center">
-        <motion.h1 
+        <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}
           className="text-5xl md:text-7xl font-semibold text-[#EEEEEE] mb-6 max-w-4xl leading-[1.1] tracking-tight"
         >
           Test Your AI Agents <br />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#5E6AD2] to-[#A0A8F0]">Before They Go Live</span>
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#5E6AD2] to-[#A0A8F0]">
+            Before They Go Live
+          </span>
         </motion.h1>
 
-        <motion.p 
+        <motion.p
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
           className="text-xl text-[#8A8F98] max-w-2xl mb-10 leading-relaxed"
         >
-          Simulate real user interactions, identify failures early, and deploy AI agents with confidence. 
-          A platform that tests, evaluates, and improves AI agents by simulating real customer conversations.
+          A platform that tests, evaluates, and improves AI agents by simulating
+          real customer conversations.
         </motion.p>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
           className="flex flex-col sm:flex-row items-center gap-6 w-full sm:w-auto"
         >
-          <Button size="lg" className="gap-2 group bg-[#5E6AD2] text-white hover:bg-[#5E6AD2]/90 font-medium px-8 h-12 w-full sm:w-auto shadow-[0_0_20px_-5px_rgba(94,106,210,0.4)] transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(94,106,210,0.6)] hover:scale-[1.02] border-none">
-            Start Testing Free <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+          <Button
+            size="lg"
+            className="gap-2 group bg-[#5E6AD2] text-white hover:bg-[#5E6AD2]/90 font-medium px-8 h-12 w-full sm:w-auto shadow-[0_0_20px_-5px_rgba(94,106,210,0.4)] transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(94,106,210,0.6)] hover:scale-[1.02] border-none"
+          >
+            Start Testing Free{" "}
+            <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
           </Button>
-          <Button variant="secondary" size="lg" className="gap-2 font-medium px-8 h-12 bg-white/5 border border-white/5 hover:bg-white/10 w-full sm:w-auto backdrop-blur-sm transition-all duration-300 hover:scale-[1.02] hover:border-white/10">
+          <Button
+            variant="secondary"
+            size="lg"
+            className="gap-2 font-medium px-8 h-12 bg-white/5 border border-white/5 hover:bg-white/10 w-full sm:w-auto backdrop-blur-sm transition-all duration-300 hover:scale-[1.02] hover:border-white/10"
+          >
             Watch Demo
           </Button>
         </motion.div>
 
-        <motion.div 
+        {/* <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4, ease: "easeOut" }}
           className="mt-8 text-sm text-[#555] font-medium"
         >
           No credit card required • 100 free test calls per month
-        </motion.div>
+        </motion.div> */}
 
         {/* Voice Agent Testing Dashboard Preview */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 60, scale: 0.9 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1.0, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
@@ -98,18 +116,51 @@ export function HeroSection() {
                   Test Runs
                 </div>
               </div>
-              
+
               <div className="p-3 space-y-2">
-                <div className="px-2 py-1.5 text-[11px] font-semibold text-[#555] uppercase tracking-wider">Recent Tests</div>
+                <div className="px-2 py-1.5 text-[11px] font-semibold text-[#555] uppercase tracking-wider">
+                  Recent Tests
+                </div>
                 <div className="space-y-0.5">
                   {[
-                    { name: 'Customer Support Bot', status: 'passed', provider: 'ElevenLabs' },
-                    { name: 'Sales Assistant', status: 'passed', provider: 'Retell' },
-                    { name: 'Appointment Scheduler', status: 'failed', provider: 'VAPI' },
-                    { name: 'FAQ Handler', status: 'running', provider: 'OpenAI' },
+                    {
+                      name: "Customer Support Bot",
+                      status: "passed",
+                      provider: "ElevenLabs",
+                    },
+                    {
+                      name: "Sales Assistant",
+                      status: "passed",
+                      provider: "Retell",
+                    },
+                    {
+                      name: "Appointment Scheduler",
+                      status: "failed",
+                      provider: "VAPI",
+                    },
+                    {
+                      name: "FAQ Handler",
+                      status: "running",
+                      provider: "OpenAI",
+                    },
                   ].map((test, i) => (
-                    <div key={test.name} className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm cursor-pointer transition-colors ${i === 0 ? 'bg-[#1F2026] text-[#EEEEEE] shadow-sm ring-1 ring-white/5' : 'text-[#8A8F98] hover:text-[#EEEEEE] hover:bg-[#1F2026]/50'}`}>
-                      <div className={`w-2 h-2 rounded-full ${test.status === 'passed' ? 'bg-green-500' : test.status === 'failed' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'}`} />
+                    <div
+                      key={test.name}
+                      className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm cursor-pointer transition-colors ${
+                        i === 0
+                          ? "bg-[#1F2026] text-[#EEEEEE] shadow-sm ring-1 ring-white/5"
+                          : "text-[#8A8F98] hover:text-[#EEEEEE] hover:bg-[#1F2026]/50"
+                      }`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          test.status === "passed"
+                            ? "bg-green-500"
+                            : test.status === "failed"
+                            ? "bg-red-500"
+                            : "bg-yellow-500 animate-pulse"
+                        }`}
+                      />
                       <span className="truncate">{test.name}</span>
                     </div>
                   ))}
@@ -122,14 +173,25 @@ export function HeroSection() {
               {/* Header */}
               <div className="h-16 border-b border-[#2A2A2A] flex items-center justify-between px-6 bg-[#111216]/30 backdrop-blur-sm">
                 <div className="flex items-center gap-4">
-                  <span className="text-[#EEEEEE] font-medium text-lg">Customer Support Bot Test</span>
-                  <span className="px-2.5 py-0.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]">Passed</span>
+                  <span className="text-[#EEEEEE] font-medium text-lg">
+                    Customer Support Bot Test
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]">
+                    Passed
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Button size="sm" variant="secondary" className="h-8 text-xs gap-1.5 bg-[#1F2026] hover:bg-[#2A2A2A] border-[#2A2A2A] text-[#EEEEEE] transition-colors">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 text-xs gap-1.5 bg-[#1F2026] hover:bg-[#2A2A2A] border-[#2A2A2A] text-[#EEEEEE] transition-colors"
+                  >
                     <Activity className="w-3.5 h-3.5" /> View Logs
                   </Button>
-                  <Button size="sm" className="h-8 text-xs bg-[#5E6AD2] hover:bg-[#5E6AD2]/80 text-white gap-1.5 shadow-lg shadow-[#5E6AD2]/20 border border-[#5E6AD2] transition-colors">
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-[#5E6AD2] hover:bg-[#5E6AD2]/80 text-white gap-1.5 shadow-lg shadow-[#5E6AD2]/20 border border-[#5E6AD2] transition-colors"
+                  >
                     <Play className="w-3.5 h-3.5" /> Run Again
                   </Button>
                 </div>
@@ -140,16 +202,26 @@ export function HeroSection() {
                 {/* Test Summary Cards */}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
-                    <div className="text-[#8A8F98] text-xs mb-1">Total Test Cases</div>
-                    <div className="text-2xl font-semibold text-[#EEEEEE]">24</div>
+                    <div className="text-[#8A8F98] text-xs mb-1">
+                      Total Test Cases
+                    </div>
+                    <div className="text-2xl font-semibold text-[#EEEEEE]">
+                      24
+                    </div>
                   </div>
                   <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
                     <div className="text-[#8A8F98] text-xs mb-1">Pass Rate</div>
-                    <div className="text-2xl font-semibold text-green-400">95.8%</div>
+                    <div className="text-2xl font-semibold text-green-400">
+                      95.8%
+                    </div>
                   </div>
                   <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
-                    <div className="text-[#8A8F98] text-xs mb-1">Avg Response Time</div>
-                    <div className="text-2xl font-semibold text-[#EEEEEE]">1.2s</div>
+                    <div className="text-[#8A8F98] text-xs mb-1">
+                      Avg Response Time
+                    </div>
+                    <div className="text-2xl font-semibold text-[#EEEEEE]">
+                      1.2s
+                    </div>
                   </div>
                 </div>
 
@@ -158,18 +230,25 @@ export function HeroSection() {
                   <div className="px-4 py-3 border-b border-[#2A2A2A] flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Mic className="w-4 h-4 text-[#5E6AD2]" />
-                      <span className="text-sm font-medium text-[#EEEEEE]">Conversation Transcript</span>
+                      <span className="text-sm font-medium text-[#EEEEEE]">
+                        Conversation Transcript
+                      </span>
                     </div>
                     <span className="text-xs text-[#555]">Test Case #1</span>
                   </div>
                   <div className="p-4 space-y-4">
                     {/* User Message */}
                     <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#2A2A2A] flex items-center justify-center text-xs text-[#8A8F98]">U</div>
+                      <div className="w-8 h-8 rounded-full bg-[#2A2A2A] flex items-center justify-center text-xs text-[#8A8F98]">
+                        U
+                      </div>
                       <div className="flex-1">
-                        <div className="text-xs text-[#555] mb-1">User (Simulated)</div>
+                        <div className="text-xs text-[#555] mb-1">
+                          User (Simulated)
+                        </div>
                         <div className="bg-[#1F2026] rounded-lg p-3 text-sm text-[#EEEEEE]">
-                          Hi, I need help with my recent order. It hasn&apos;t arrived yet.
+                          Hi, I need help with my recent order. It hasn&apos;t
+                          arrived yet.
                         </div>
                       </div>
                     </div>
@@ -179,19 +258,24 @@ export function HeroSection() {
                         <Sparkles className="w-4 h-4 text-white" />
                       </div>
                       <div className="flex-1">
-                        <div className="text-xs text-[#555] mb-1">Voice Agent</div>
+                        <div className="text-xs text-[#555] mb-1">
+                          Voice Agent
+                        </div>
                         <div className="bg-[#5E6AD2]/10 border border-[#5E6AD2]/20 rounded-lg p-3 text-sm text-[#EEEEEE]">
-                          I&apos;d be happy to help you track your order! Could you please provide your order number?
+                          I&apos;d be happy to help you track your order! Could
+                          you please provide your order number?
                         </div>
                         {/* Audio Waveform */}
                         <div className="mt-2 flex items-center gap-1">
                           {Array.from({ length: 30 }).map((_, i) => (
-                            <div 
+                            <div
                               key={i}
                               className="w-1 bg-[#5E6AD2] rounded-full transition-all duration-100"
-                              style={{ 
-                                height: `${Math.sin((i + waveIndex) * 0.5) * 10 + 12}px`,
-                                opacity: i < 25 ? 1 : 0.3
+                              style={{
+                                height: `${
+                                  Math.sin((i + waveIndex) * 0.5) * 10 + 12
+                                }px`,
+                                opacity: i < 25 ? 1 : 0.3,
                               }}
                             />
                           ))}
@@ -202,7 +286,7 @@ export function HeroSection() {
                 </div>
 
                 {/* AI Analysis */}
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 2.5, duration: 0.5 }}
@@ -211,14 +295,16 @@ export function HeroSection() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-3.5 h-3.5 text-[#5E6AD2]" />
-                      <span className="text-xs font-semibold text-[#EEEEEE]">AI Analysis</span>
+                      <span className="text-xs font-semibold text-[#EEEEEE]">
+                        AI Analysis
+                      </span>
                     </div>
                     <span className="text-[10px] text-[#555]">VoiceQA</span>
                   </div>
                   <p className="text-[11px] text-[#8A8F98] leading-relaxed">
                     <CheckCircle2 className="w-3 h-3 inline text-green-400 mr-1" />
-                    Agent responded appropriately and followed the expected conversation flow. 
-                    Tone was professional and helpful.
+                    Agent responded appropriately and followed the expected
+                    conversation flow. Tone was professional and helpful.
                   </p>
                 </motion.div>
               </div>
