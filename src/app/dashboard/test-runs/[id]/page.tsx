@@ -1464,10 +1464,7 @@ export default function TestRunDetailPage() {
 
           {status?.status === "running" && (
             <>
-              <Button variant="outline" size="sm" onClick={handlePauseResume}>
-                <Pause className="h-4 w-4 mr-1" />
-                Pause
-              </Button>
+              {/* Pause button removed as per Bug 14 */}
               <Button variant="destructive" size="sm" onClick={handleCancel}>
                 <Square className="h-4 w-4 mr-1" />
                 Cancel

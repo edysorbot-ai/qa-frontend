@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,12 @@ function NewTestRunContent() {
   const [batchingEnabled, setBatchingEnabled] = useState(true);
   const [concurrencyEnabled, setConcurrencyEnabled] = useState(false);
   const [concurrencyCount, setConcurrencyCount] = useState(3);
+  const concurrencyCountRef = useRef(concurrencyCount);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    concurrencyCountRef.current = concurrencyCount;
+  }, [concurrencyCount]);
   
   // Provider limits state
   const [providerLimits, setProviderLimits] = useState<{
@@ -323,7 +329,7 @@ function NewTestRunContent() {
               const limitsData = await limitsResponse.json();
               setProviderLimits(limitsData.limits);
               // If current concurrency exceeds limit, adjust it
-              if (limitsData.limits?.concurrencyLimit && concurrencyCount > limitsData.limits.concurrencyLimit) {
+              if (limitsData.limits?.concurrencyLimit && concurrencyCountRef.current > limitsData.limits.concurrencyLimit) {
                 setConcurrencyCount(limitsData.limits.concurrencyLimit);
                 setShowConcurrencyWarning(true);
               }
@@ -360,7 +366,7 @@ function NewTestRunContent() {
     } finally {
       setIsLoadingAgentDetails(false);
     }
-  }, [getToken, concurrencyCount]);
+  }, [getToken]);
 
   // Fetch agent details when selection changes
   useEffect(() => {
@@ -1544,7 +1550,7 @@ function NewTestRunContent() {
 
       {/* Batch Planning Modal */}
       <Dialog open={showBatchModal} onOpenChange={setShowBatchModal}>
-        <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] p-6" style={{ maxWidth: '95vw', width: '95vw' }}>
+        <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] p-6 flex flex-col" style={{ maxWidth: '95vw', width: '95vw' }}>
           <DialogHeader className="pb-4">
             <DialogTitle className="text-xl font-bold">
               {batchingEnabled ? "AI-Optimized Call Batches" : "Individual Call Planning"}
@@ -1605,7 +1611,7 @@ function NewTestRunContent() {
           })()}
 
           {/* Calls Table - Separated by Test Mode */}
-          <div className="overflow-auto max-h-[55vh] space-y-4">
+          <div className="flex-1 overflow-auto min-h-0 space-y-4">
             {/* Voice Batches Section */}
             {callBatches.filter(b => b.testMode !== 'chat').length > 0 && (
               <div>

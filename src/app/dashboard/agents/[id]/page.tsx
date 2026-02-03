@@ -496,10 +496,22 @@ export default function AgentDetailPage() {
       
       if (response.ok) {
         const data = await response.json();
-        // Add testValue field for user input
+        
+        // Load saved values from localStorage
+        let savedVars: Record<string, string> = {};
+        try {
+          const savedData = localStorage.getItem(`agent-${agentId}-variables`);
+          if (savedData) {
+            savedVars = JSON.parse(savedData);
+          }
+        } catch (e) {
+          console.error("Error loading saved variables:", e);
+        }
+        
+        // Add testValue field for user input, using saved values if available
         const varsWithTestValue = (data.variables || []).map((v: DynamicVariable) => ({
           ...v,
-          testValue: v.defaultValue || '',
+          testValue: savedVars[v.name] || v.defaultValue || '',
         }));
         setDynamicVariables(varsWithTestValue);
       }
@@ -2591,6 +2603,9 @@ export default function AgentDetailPage() {
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Scenario
                           </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Expected Response
+                          </th>
                           <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
                             Priority
                           </th>
@@ -2649,32 +2664,30 @@ export default function AgentDetailPage() {
                                   </td>
                                   <td className="px-4 py-3">
                                     {isEditing ? (
-                                      <div className="space-y-2">
-                                        <Input
-                                          value={editTestCase.scenario}
-                                          onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
-                                          className="h-8 text-sm"
-                                          placeholder="Scenario"
-                                        />
-                                        <Input
-                                          value={editTestCase.expectedOutcome}
-                                          onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
-                                          className="h-8 text-sm"
-                                          placeholder="Expected outcome"
-                                        />
-                                      </div>
+                                      <Input
+                                        value={editTestCase.scenario}
+                                        onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
+                                        className="h-8 text-sm"
+                                        placeholder="Scenario"
+                                      />
                                     ) : (
-                                      <>
-                                        <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
-                                          {tc.scenario}
-                                        </p>
-                                        {tc.expectedOutcome && (
-                                          <p className="text-xs text-muted-foreground mt-1">
-                                            <span className="font-medium">Expected: </span>
-                                            {tc.expectedOutcome}
-                                          </p>
-                                        )}
-                                      </>
+                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                        {tc.scenario}
+                                      </p>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {isEditing ? (
+                                      <Input
+                                        value={editTestCase.expectedOutcome}
+                                        onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
+                                        className="h-8 text-sm"
+                                        placeholder="Expected response"
+                                      />
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.expectedOutcome}>
+                                        {tc.expectedOutcome || <span className="text-muted-foreground/50 italic">Not specified</span>}
+                                      </p>
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-center">

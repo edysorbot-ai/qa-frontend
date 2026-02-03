@@ -183,12 +183,15 @@ export default function ScheduledTestsPage() {
 
     // Validation
     if (!editName.trim()) {
+      alert("Please enter a schedule name");
       return;
     }
     if (editScheduleType === "once" && !editScheduleDate) {
+      alert("Please select a date for the scheduled test");
       return;
     }
     if (editScheduleType === "weekly" && editScheduleDays.length === 0) {
+      alert("Please select at least one day for the weekly schedule");
       return;
     }
     // Validate end options for recurring schedules
@@ -405,7 +408,7 @@ export default function ScheduledTestsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             <CalendarClock className="h-8 w-8" />
-            Scheduled Tests
+            Test Schedules
           </h1>
           <p className="text-muted-foreground">
             Manage your scheduled test runs
@@ -420,7 +423,7 @@ export default function ScheduledTestsPage() {
       {scheduledTests.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>No Scheduled Tests</CardTitle>
+            <CardTitle>No Test Schedules</CardTitle>
             <CardDescription>
               You haven&apos;t scheduled any tests yet
             </CardDescription>
@@ -457,7 +460,7 @@ export default function ScheduledTestsPage() {
                           variant="secondary"
                           className={statusColors[test.status]}
                         >
-                          {test.status}
+                          {test.status.charAt(0).toUpperCase() + test.status.slice(1)}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -572,7 +575,7 @@ export default function ScheduledTestsPage() {
 
       {/* Edit Schedule Dialog */}
       <Dialog open={!!editingTest} onOpenChange={() => setEditingTest(null)}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit className="h-5 w-5 text-primary" />
@@ -647,11 +650,7 @@ export default function ScheduledTestsPage() {
                   </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-time-once">
-                    Time {editScheduleDate && getMinTime(editScheduleDate) !== "00:00" && (
-                      <span className="text-muted-foreground">(min: {getMinTime(editScheduleDate)})</span>
-                    )}
-                  </Label>
+                  <Label htmlFor="edit-time-once">Time</Label>
                   <Input
                     id="edit-time-once"
                     type="time"
@@ -790,7 +789,7 @@ export default function ScheduledTestsPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="edit-weekly-on" />
-                      <Label htmlFor="edit-weekly-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="edit-weekly-on" className="font-normal cursor-pointer">Till</Label>
                       {editEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>
