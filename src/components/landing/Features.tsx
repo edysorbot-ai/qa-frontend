@@ -249,7 +249,7 @@ export function Features() {
   return (
     <section id="features" className="py-32 bg-[#0B0C10]">
       <Container>
-        <div className="mb-20">
+        <div className="">
           <div className="flex items-center gap-4 mb-6 max-w-xs mx-auto">
             <div className="h-px flex-1 bg-gradient-to-r from-transparent to-[#2A2A2A]" />
             <span className="text-xs font-semibold text-[#5E6AD2] uppercase tracking-widest px-3 py-1 border border-[#5E6AD2]/20 rounded-full bg-[#5E6AD2]/5 shadow-[0_0_10px_-3px_rgba(94,106,210,0.2)]">How It Works</span>

@@ -51,8 +51,8 @@ export function HeroSection() {
           transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
           className="text-xl text-[#8A8F98] max-w-2xl mb-10 leading-relaxed"
         >
-          A platform that tests, evaluates, and improves AI agents by simulating
-          real customer conversations.
+          Evaluate voice and chat conversational AI agents in real world
+          scenarios to ensure reliability before deployment
         </motion.p>
 
         <motion.div
@@ -157,8 +157,8 @@ export function HeroSection() {
                           test.status === "passed"
                             ? "bg-green-500"
                             : test.status === "failed"
-                            ? "bg-red-500"
-                            : "bg-yellow-500 animate-pulse"
+                              ? "bg-red-500"
+                              : "bg-yellow-500 animate-pulse"
                         }`}
                       />
                       <span className="truncate">{test.name}</span>

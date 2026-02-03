@@ -9,7 +9,7 @@ export function ProductDetails() {
   return (
     <>
       {/* AI-Powered Call Monitoring & Compliance */}
-      <section className="py-32 bg-[#0B0C10] overflow-hidden">
+      <section className="py-10 bg-[#0B0C10] overflow-hidden">
         <Container>
           {/* Section Header */}
           <div className="text-center mb-20">
@@ -184,7 +184,7 @@ export function ProductDetails() {
       </section>
 
       {/* Instant Alerts Section */}
-      <section className="py-32 bg-[#0B0C10] overflow-hidden">
+      <section className="py-10 bg-[#0B0C10] overflow-hidden">
         <Container>
           <div className="flex flex-col md:flex-row items-center gap-20">
             <div className="flex-1 relative z-10">

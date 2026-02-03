@@ -9,9 +9,9 @@ const PROVIDERS = [
 
 export function TrustBar() {
   return (
-    <section className="py-24 bg-[#0B0C10] overflow-hidden relative border-y border-[#1F2026]">
+    <section className="py-20 bg-[#0B0C10] overflow-hidden relative border-y border-[#1F2026]">
       <Container>
-        <p className="text-center text-sm text-[#8A8F98] mb-12 font-medium tracking-[0.2em] uppercase opacity-60">
+        <p className="text-center text-md text-white mb-12 font-medium tracking-[0.2em] uppercase opacity-60">
           Test voice agents from leading providers
         </p>
         
@@ -27,14 +27,14 @@ export function TrustBar() {
               transition={{ 
                 repeat: Infinity, 
                 ease: "linear", 
-                duration: 60 
+                duration: 20 
               }}
               className="flex items-center gap-16 md:gap-28 pr-16 md:pr-28 whitespace-nowrap"
             >
               {[...PROVIDERS, ...PROVIDERS].map((provider, i) => (
                 <div 
                   key={`${provider}-${i}`} 
-                  className="text-2xl md:text-3xl font-bold font-sans text-[#333] hover:text-[#EEEEEE] transition-all duration-500 cursor-default select-none tracking-tight"
+                  className="text-2xl md:text-3xl font-bold font-sans text-[#EEEEEE] hover:text-[#EEEEEE] transition-all duration-500 cursor-default select-none tracking-tight"
                 >
                   {provider}
                 </div>

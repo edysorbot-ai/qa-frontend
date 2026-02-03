@@ -4,7 +4,6 @@ import { Navbar } from "@/components/landing/Navbar";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { TrustBar } from "@/components/landing/TrustBar";
 import { Features } from "@/components/landing/Features";
-import { Pricing } from "@/components/landing/Pricing";
 import { ProductDetails } from "@/components/landing/ProductDetails";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
@@ -22,7 +21,6 @@ export default async function Home() {
       <HeroSection />
       <TrustBar />
       <Features />
-      <Pricing />
       <ProductDetails />
       <CTA />
       <Footer />
