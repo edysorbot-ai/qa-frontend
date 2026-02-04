@@ -21,6 +21,7 @@ import {
   User,
   BarChart3,
   TrendingUp,
+  Wrench,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
@@ -28,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
 import ComprehensiveMetricsDashboard from "@/components/comprehensive-metrics-dashboard";
 import { ContextGrowthChart } from "@/components/context-growth-chart";
+import { ToolDecisionTimeline } from "@/components/tool-decision-timeline";
 import { ComprehensiveTestMetrics } from "@/types/metrics";
 
 interface ConversationTurn {
@@ -485,7 +487,7 @@ export default function TestResultDetailPage() {
 
       {/* Tabs for Transcript and Analytics */}
       <Tabs defaultValue="comprehensive" className="mt-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="comprehensive" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
             Metrics
@@ -493,6 +495,10 @@ export default function TestResultDetailPage() {
           <TabsTrigger value="context-growth" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Context Growth
+          </TabsTrigger>
+          <TabsTrigger value="tool-decisions" className="flex items-center gap-2">
+            <Wrench className="h-4 w-4" />
+            Tool Decisions
           </TabsTrigger>
           <TabsTrigger value="transcript" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
@@ -559,6 +565,11 @@ export default function TestResultDetailPage() {
         {/* Context Growth Tab */}
         <TabsContent value="context-growth" className="mt-6">
           <ContextGrowthTab resultId={result.id} />
+        </TabsContent>
+
+        {/* Tool Decisions Tab */}
+        <TabsContent value="tool-decisions" className="mt-6">
+          <ToolDecisionsTab resultId={result.id} />
         </TabsContent>
 
         {/* Transcript Tab */}
@@ -925,4 +936,116 @@ function ContextGrowthTab({ resultId }: { resultId: string }) {
   }
 
   return <ContextGrowthChart metrics={metrics} />;
+}
+
+// Tool Decisions Tab Component
+function ToolDecisionsTab({ resultId }: { resultId: string }) {
+  const { getToken } = useAuth();
+  const [trace, setTrace] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    const fetchToolDecisions = async () => {
+      try {
+        setLoading(true);
+        const token = await getToken();
+        if (!token) return;
+        
+        const response = await fetch(
+          `${api.baseUrl}/api/test-runs/results/${resultId}/tool-decisions`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          setTrace(data.trace);
+        } else {
+          const errorData = await response.json();
+          setError(errorData.error || 'Failed to load tool decisions');
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch tool decisions:', err);
+        setError('Failed to load tool decisions');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchToolDecisions();
+  }, [resultId, getToken]);
+
+  const handleExportAudit = async () => {
+    try {
+      setIsExporting(true);
+      const token = await getToken();
+      if (!token) return;
+      
+      const response = await fetch(
+        `${api.baseUrl}/api/test-runs/results/${resultId}/tool-decisions/audit`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Download as JSON file
+        const blob = new Blob([JSON.stringify(data.audit, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tool-decision-audit-${resultId}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        console.error('Failed to export audit');
+      }
+    } catch (err) {
+      console.error('Export error:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground">Loading tool decisions...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6">
+        <div className="flex items-center gap-2 text-yellow-500 mb-2">
+          <AlertTriangle className="h-5 w-5" />
+          <span className="font-medium">Unable to Load Tool Decisions</span>
+        </div>
+        <p className="text-sm text-muted-foreground">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <ToolDecisionTimeline 
+      trace={trace} 
+      onExportAudit={handleExportAudit}
+      isExporting={isExporting}
+    />
+  );
 }
