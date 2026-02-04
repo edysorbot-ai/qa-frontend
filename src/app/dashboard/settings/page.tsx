@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Check, Loader2, X, Bell, Mail, Trash2, Users, Eye, EyeOff, Plug, MessageSquare, AlertCircle, CheckCircle, CreditCard, Infinity, Package, Gift } from "lucide-react";
+import { Plus, Check, Loader2, X, Bell, Mail, Trash2, Users, Eye, EyeOff, Plug, MessageSquare, AlertCircle, CheckCircle, CreditCard, Infinity, Package, Gift, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 
 type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "haptik" | "bolna" | "livekit";
@@ -133,7 +133,7 @@ export default function SettingsPage() {
   interface EmailConfig {
     email: string;
     enabled: boolean;
-    type: 'account' | 'team_member';
+    type?: 'account' | 'team_member';  // Optional - custom emails won't have a type
     name?: string;
   }
 
@@ -149,6 +149,8 @@ export default function SettingsPage() {
     slack_channel: "",
   });
   const [newEmailInput, setNewEmailInput] = useState("");
+  const [editingEmail, setEditingEmail] = useState<string | null>(null);
+  const [editEmailInput, setEditEmailInput] = useState("");
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertsError, setAlertsError] = useState<string | null>(null);
@@ -165,6 +167,7 @@ export default function SettingsPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
   const [teamMembersSaving, setTeamMembersSaving] = useState(false);
+  const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
   const [teamMembersError, setTeamMembersError] = useState<string | null>(null);
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [roleChecked, setRoleChecked] = useState(false);
@@ -596,6 +599,78 @@ export default function SettingsPage() {
       } else {
         const data = await response.json();
         setAlertsError(data.message || "Failed to add email");
+      }
+    } catch (error) {
+      setAlertsError("Network error. Please try again.");
+    } finally {
+      setAlertsSaving(false);
+    }
+  };
+
+  const handleStartEditEmail = (email: string) => {
+    setEditingEmail(email);
+    setEditEmailInput(email);
+    setAlertsError(null);
+  };
+
+  const handleCancelEditEmail = () => {
+    setEditingEmail(null);
+    setEditEmailInput("");
+    setAlertsError(null);
+  };
+
+  const handleUpdateEmail = async (oldEmail: string) => {
+    const newEmail = editEmailInput.trim();
+    if (!newEmail) {
+      setAlertsError("Email cannot be empty");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      setAlertsError("Please enter a valid email address");
+      return;
+    }
+
+    // Check if new email already exists (excluding the current one being edited)
+    if (alertSettings.email_configs.some(c => c.email === newEmail && c.email !== oldEmail)) {
+      setAlertsError("Email already exists");
+      return;
+    }
+
+    if (newEmail === oldEmail) {
+      handleCancelEditEmail();
+      return;
+    }
+
+    setAlertsSaving(true);
+    setAlertsError(null);
+    try {
+      const token = await getToken();
+      
+      // Update the email in the configs
+      const updatedConfigs = alertSettings.email_configs.map(c => 
+        c.email === oldEmail ? { ...c, email: newEmail } : c
+      );
+      
+      const response = await fetch(api.endpoints.alertSettings.update, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email_configs: updatedConfigs }),
+      });
+
+      if (response.ok) {
+        setAlertSettings(prev => ({
+          ...prev,
+          email_configs: updatedConfigs,
+        }));
+        handleCancelEditEmail();
+      } else {
+        const data = await response.json();
+        setAlertsError(data.message || "Failed to update email");
       }
     } catch (error) {
       setAlertsError("Network error. Please try again.");
@@ -1432,27 +1507,89 @@ export default function SettingsPage() {
                                 config.enabled ? 'bg-muted/50' : 'bg-muted/20 opacity-60'
                               }`}
                             >
-                              <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap flex-1">
                                 <Mail className={`h-4 w-4 ${config.enabled ? 'text-muted-foreground' : 'text-muted-foreground/50'}`} />
-                                <span className={`text-sm ${!config.enabled && 'text-muted-foreground'}`}>
-                                  {config.email}
-                                </span>
-                                {config.type === 'account' && (
-                                  <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
-                                    Account Email
-                                  </span>
-                                )}
-                                {config.type === 'team_member' && (
-                                  <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-600 rounded-full">
-                                    Team Member{config.name ? ` • ${config.name}` : ''}
-                                  </span>
+                                {editingEmail === config.email ? (
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Input
+                                      type="email"
+                                      value={editEmailInput}
+                                      onChange={(e) => setEditEmailInput(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          handleUpdateEmail(config.email);
+                                        } else if (e.key === "Escape") {
+                                          handleCancelEditEmail();
+                                        }
+                                      }}
+                                      className="flex-1 h-8"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleUpdateEmail(config.email)}
+                                      disabled={alertsSaving}
+                                    >
+                                      {alertsSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={handleCancelEditEmail}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className={`text-sm ${!config.enabled && 'text-muted-foreground'}`}>
+                                      {config.email}
+                                    </span>
+                                    {config.type === 'account' && (
+                                      <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
+                                        Account Email
+                                      </span>
+                                    )}
+                                    {config.type === 'team_member' && (
+                                      <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-600 rounded-full">
+                                        Team Member{config.name ? ` • ${config.name}` : ''}
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                              <Switch
-                                checked={config.enabled}
-                                onCheckedChange={(checked) => handleToggleEmailConfig(config.email, checked)}
-                                disabled={alertsSaving}
-                              />
+                              {editingEmail !== config.email && (
+                                <div className="flex items-center gap-2">
+                                  {!config.type && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleStartEditEmail(config.email)}
+                                        className="h-8 w-8 p-0"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleRemoveEmail(config.email)}
+                                        disabled={alertsSaving}
+                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </>
+                                  )}
+                                  <Switch
+                                    checked={config.enabled}
+                                    onCheckedChange={(checked) => handleToggleEmailConfig(config.email, checked)}
+                                    disabled={alertsSaving}
+                                  />
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
