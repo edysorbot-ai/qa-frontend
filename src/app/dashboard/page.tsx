@@ -51,7 +51,7 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const { user } = useUser();
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -60,7 +60,11 @@ export default function DashboardPage() {
   const fetchDashboardStats = useCallback(async () => {
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        // Retry after a short delay if token not available yet
+        setTimeout(() => fetchDashboardStats(), 500);
+        return;
+      }
 
       const response = await fetch(api.endpoints.users.dashboard, {
         headers: { Authorization: `Bearer ${token}` },
@@ -78,8 +82,10 @@ export default function DashboardPage() {
   }, [getToken]);
 
   useEffect(() => {
-    fetchDashboardStats();
-  }, [fetchDashboardStats]);
+    if (isLoaded) {
+      fetchDashboardStats();
+    }
+  }, [fetchDashboardStats, isLoaded]);
 
   const getStatusColor = (status: string) => {
     switch (status) {

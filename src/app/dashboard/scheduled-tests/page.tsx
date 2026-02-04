@@ -131,6 +131,7 @@ export default function ScheduledTestsPage() {
   const [editEndsOnDate, setEditEndsOnDate] = useState<Date | undefined>(undefined);
   const [editEndsAfterOccurrences, setEditEndsAfterOccurrences] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Helper to get minimum allowed time (30 min from now)
   const getMinTime = (selectedDate?: Date) => {
@@ -156,6 +157,7 @@ export default function ScheduledTestsPage() {
     setEditScheduleDays(test.scheduled_days || []);
     setEditEndsType(test.ends_type || "never");
     setEditEndsAfterOccurrences(test.ends_after_occurrences || 1);
+    setEditError(null);
     if (test.scheduled_date) {
       setEditScheduleDate(new Date(test.scheduled_date));
     } else {
@@ -181,22 +183,28 @@ export default function ScheduledTestsPage() {
   const handleSaveEdit = async () => {
     if (!editingTest) return;
 
-    // Validation
+    // Validation with error messages
+    setEditError(null);
     if (!editName.trim()) {
+      setEditError("Please enter a name for the scheduled test");
       return;
     }
     if (editScheduleType === "once" && !editScheduleDate) {
+      setEditError("Please select a date for the scheduled test");
       return;
     }
     if (editScheduleType === "weekly" && editScheduleDays.length === 0) {
+      setEditError("Please select at least one day for the weekly schedule");
       return;
     }
     // Validate end options for recurring schedules
     if ((editScheduleType === "daily" || editScheduleType === "weekly")) {
       if (editEndsType === "on" && !editEndsOnDate) {
+        setEditError("Please select an end date");
         return;
       }
       if (editEndsType === "after" && (!editEndsAfterOccurrences || editEndsAfterOccurrences < 1)) {
+        setEditError("Number of occurrences must be at least 1");
         return;
       }
     }
@@ -405,7 +413,7 @@ export default function ScheduledTestsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             <CalendarClock className="h-8 w-8" />
-            Scheduled Tests
+            Test Schedules
           </h1>
           <p className="text-muted-foreground">
             Manage your scheduled test runs
@@ -416,11 +424,11 @@ export default function ScheduledTestsPage() {
         </Button>
       </div>
 
-      {/* Scheduled Tests List */}
+      {/* Test Schedules List */}
       {scheduledTests.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>No Scheduled Tests</CardTitle>
+            <CardTitle>No Test Schedules</CardTitle>
             <CardDescription>
               You haven&apos;t scheduled any tests yet
             </CardDescription>
@@ -457,7 +465,7 @@ export default function ScheduledTestsPage() {
                           variant="secondary"
                           className={statusColors[test.status]}
                         >
-                          {test.status}
+                          {test.status.charAt(0).toUpperCase() + test.status.slice(1)}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -572,7 +580,7 @@ export default function ScheduledTestsPage() {
 
       {/* Edit Schedule Dialog */}
       <Dialog open={!!editingTest} onOpenChange={() => setEditingTest(null)}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit className="h-5 w-5 text-primary" />
@@ -647,11 +655,7 @@ export default function ScheduledTestsPage() {
                   </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-time-once">
-                    Time {editScheduleDate && getMinTime(editScheduleDate) !== "00:00" && (
-                      <span className="text-muted-foreground">(min: {getMinTime(editScheduleDate)})</span>
-                    )}
-                  </Label>
+                  <Label htmlFor="edit-time-once">Time</Label>
                   <Input
                     id="edit-time-once"
                     type="time"
@@ -698,7 +702,7 @@ export default function ScheduledTestsPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="edit-daily-on" />
-                      <Label htmlFor="edit-daily-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="edit-daily-on" className="font-normal cursor-pointer">Till</Label>
                       {editEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>
@@ -790,7 +794,7 @@ export default function ScheduledTestsPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="edit-weekly-on" />
-                      <Label htmlFor="edit-weekly-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="edit-weekly-on" className="font-normal cursor-pointer">Till</Label>
                       {editEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>
@@ -867,10 +871,14 @@ export default function ScheduledTestsPage() {
                 )}
               </div>
             </div>
+
+            {editError && (
+              <p className="text-sm text-destructive">{editError}</p>
+            )}
           </div>
 
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setEditingTest(null)}>
+            <Button variant="outline" onClick={() => { setEditingTest(null); setEditError(null); }}>
               Cancel
             </Button>
             <Button onClick={handleSaveEdit} disabled={isSaving}>

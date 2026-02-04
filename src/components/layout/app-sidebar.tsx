@@ -55,7 +55,7 @@ const menuItems = [
     href: "/dashboard/test-runs",
   },
   {
-    title: "Scheduled Tests",
+    title: "Test Schedules",
     icon: CalendarClock,
     href: "/dashboard/scheduled-tests",
   },

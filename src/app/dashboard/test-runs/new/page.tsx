@@ -1544,7 +1544,7 @@ function NewTestRunContent() {
 
       {/* Batch Planning Modal */}
       <Dialog open={showBatchModal} onOpenChange={setShowBatchModal}>
-        <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] p-6" style={{ maxWidth: '95vw', width: '95vw' }}>
+        <DialogContent className="!max-w-[95vw] !w-[95vw] max-h-[90vh] overflow-y-auto p-6" style={{ maxWidth: '95vw', width: '95vw' }}>
           <DialogHeader className="pb-4">
             <DialogTitle className="text-xl font-bold">
               {batchingEnabled ? "AI-Optimized Call Batches" : "Individual Call Planning"}
@@ -1864,7 +1864,7 @@ function NewTestRunContent() {
 
       {/* Schedule Test Dialog */}
       <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarClock className="h-5 w-5 text-primary" />
@@ -1940,7 +1940,7 @@ function NewTestRunContent() {
                   </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="time-once">Time {scheduleDate && getMinTime(scheduleDate) !== "00:00" && <span className="text-muted-foreground">(min: {getMinTime(scheduleDate)})</span>}</Label>
+                  <Label htmlFor="time-once">Time</Label>
                   <Input
                     id="time-once"
                     type="time"
@@ -2017,7 +2017,7 @@ function NewTestRunContent() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="daily-on" />
-                      <Label htmlFor="daily-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="daily-on" className="font-normal cursor-pointer">Till</Label>
                       {scheduleEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>
@@ -2124,7 +2124,7 @@ function NewTestRunContent() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="weekly-on" />
-                      <Label htmlFor="weekly-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="weekly-on" className="font-normal cursor-pointer">Till</Label>
                       {scheduleEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>

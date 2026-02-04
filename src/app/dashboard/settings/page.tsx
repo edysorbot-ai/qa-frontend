@@ -1276,18 +1276,32 @@ export default function SettingsPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
-                                  {member.status || 'Active'}
+                                <span className={`text-xs px-2 py-1 rounded-full ${
+                                  member.status === 'deactivated' 
+                                    ? 'bg-red-100 text-red-700' 
+                                    : member.status === 'pending' 
+                                      ? 'bg-yellow-100 text-yellow-700' 
+                                      : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {member.status === 'deactivated' 
+                                    ? 'Deactivated' 
+                                    : member.status === 'pending' 
+                                      ? 'Pending' 
+                                      : member.status === 'active' 
+                                        ? 'Active' 
+                                        : member.status?.charAt(0).toUpperCase() + member.status?.slice(1) || 'Active'}
                                 </span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleRemoveTeamMember(member.id)}
-                                  disabled={teamMembersSaving}
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                {member.status !== 'deactivated' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveTeamMember(member.id)}
+                                    disabled={teamMembersSaving}
+                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           ))}
