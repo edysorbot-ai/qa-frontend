@@ -8,9 +8,10 @@ import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const NAV_LINKS = [
-  { title: "Features", href: "#features" },
-  { title: "Pricing", href: "#pricing" },
-  { title: "Docs", href: "#docs" },
+  { title: "Features", href: "/#features" },
+  { title: "Pricing", href: "/pricing" },
+  { title: "Booking", href: "/booking" },
+  // { title: "Docs", href: "/#docs" },
 ];
 
 const menuVariants = {
