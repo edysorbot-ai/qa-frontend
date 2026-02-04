@@ -1464,6 +1464,7 @@ export default function TestRunDetailPage() {
 
           {status?.status === "running" && (
             <>
+<<<<<<< HEAD
               {/* Pause button removed as per Bug 14 */}
               <Button variant="destructive" size="sm" onClick={handleCancel}>
                 <Square className="h-4 w-4 mr-1" />
@@ -1478,6 +1479,8 @@ export default function TestRunDetailPage() {
                 <Play className="h-4 w-4 mr-1" />
                 Resume
               </Button>
+=======
+>>>>>>> 0f02a7a6efec9fe430a848063b67d10ffd00ebca
               <Button variant="destructive" size="sm" onClick={handleCancel}>
                 <Square className="h-4 w-4 mr-1" />
                 Cancel

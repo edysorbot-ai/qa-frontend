@@ -131,6 +131,7 @@ export default function ScheduledTestsPage() {
   const [editEndsOnDate, setEditEndsOnDate] = useState<Date | undefined>(undefined);
   const [editEndsAfterOccurrences, setEditEndsAfterOccurrences] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Helper to get minimum allowed time (30 min from now)
   const getMinTime = (selectedDate?: Date) => {
@@ -156,6 +157,7 @@ export default function ScheduledTestsPage() {
     setEditScheduleDays(test.scheduled_days || []);
     setEditEndsType(test.ends_type || "never");
     setEditEndsAfterOccurrences(test.ends_after_occurrences || 1);
+    setEditError(null);
     if (test.scheduled_date) {
       setEditScheduleDate(new Date(test.scheduled_date));
     } else {
@@ -181,8 +183,10 @@ export default function ScheduledTestsPage() {
   const handleSaveEdit = async () => {
     if (!editingTest) return;
 
-    // Validation
+    // Validation with error messages
+    setEditError(null);
     if (!editName.trim()) {
+<<<<<<< HEAD
       alert("Please enter a schedule name");
       return;
     }
@@ -192,14 +196,27 @@ export default function ScheduledTestsPage() {
     }
     if (editScheduleType === "weekly" && editScheduleDays.length === 0) {
       alert("Please select at least one day for the weekly schedule");
+=======
+      setEditError("Please enter a name for the scheduled test");
+      return;
+    }
+    if (editScheduleType === "once" && !editScheduleDate) {
+      setEditError("Please select a date for the scheduled test");
+      return;
+    }
+    if (editScheduleType === "weekly" && editScheduleDays.length === 0) {
+      setEditError("Please select at least one day for the weekly schedule");
+>>>>>>> 0f02a7a6efec9fe430a848063b67d10ffd00ebca
       return;
     }
     // Validate end options for recurring schedules
     if ((editScheduleType === "daily" || editScheduleType === "weekly")) {
       if (editEndsType === "on" && !editEndsOnDate) {
+        setEditError("Please select an end date");
         return;
       }
       if (editEndsType === "after" && (!editEndsAfterOccurrences || editEndsAfterOccurrences < 1)) {
+        setEditError("Number of occurrences must be at least 1");
         return;
       }
     }
@@ -419,7 +436,7 @@ export default function ScheduledTestsPage() {
         </Button>
       </div>
 
-      {/* Scheduled Tests List */}
+      {/* Test Schedules List */}
       {scheduledTests.length === 0 ? (
         <Card>
           <CardHeader>
@@ -697,7 +714,7 @@ export default function ScheduledTestsPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="on" id="edit-daily-on" />
-                      <Label htmlFor="edit-daily-on" className="font-normal cursor-pointer">On</Label>
+                      <Label htmlFor="edit-daily-on" className="font-normal cursor-pointer">Till</Label>
                       {editEndsType === "on" && (
                         <Popover>
                           <PopoverTrigger asChild>
@@ -866,10 +883,14 @@ export default function ScheduledTestsPage() {
                 )}
               </div>
             </div>
+
+            {editError && (
+              <p className="text-sm text-destructive">{editError}</p>
+            )}
           </div>
 
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setEditingTest(null)}>
+            <Button variant="outline" onClick={() => { setEditingTest(null); setEditError(null); }}>
               Cancel
             </Button>
             <Button onClick={handleSaveEdit} disabled={isSaving}>

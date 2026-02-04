@@ -320,6 +320,7 @@ export default function AgentDetailPage() {
   // Dynamic Variables state
   const [dynamicVariables, setDynamicVariables] = useState<DynamicVariable[]>([]);
   const [isLoadingVariables, setIsLoadingVariables] = useState(false);
+  const [isSavingVariables, setIsSavingVariables] = useState(false);
   const [showDynamicVariablesDialog, setShowDynamicVariablesDialog] = useState(false);
 
   // Knowledge Base state
@@ -726,7 +727,7 @@ export default function AgentDetailPage() {
 
   // Add new test case manually (saves to database via API)
   const handleAddTestCase = async () => {
-    if (!newTestCase.name || !newTestCase.scenario) return;
+    if (!newTestCase.name || !newTestCase.scenario || !newTestCase.expectedOutcome) return;
     if (!newTestCase.category && !customCategory) return;
 
     const finalCategory = newTestCase.category === "__custom__" 
@@ -838,7 +839,7 @@ export default function AgentDetailPage() {
 
   // Save edited test case
   const handleSaveEditTestCase = async () => {
-    if (!editingTestCaseId || !editTestCase.name || !editTestCase.scenario) return;
+    if (!editingTestCaseId || !editTestCase.name || !editTestCase.scenario || !editTestCase.expectedOutcome) return;
 
     try {
       const token = await getToken();
@@ -2534,7 +2535,7 @@ export default function AgentDetailPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium">Expected Outcome</Label>
+                        <Label className="text-sm font-medium">Expected Response *</Label>
                         <Input
                           value={newTestCase.expectedOutcome}
                           onChange={(e) =>
@@ -2543,7 +2544,7 @@ export default function AgentDetailPage() {
                               expectedOutcome: e.target.value,
                             })
                           }
-                          placeholder="What should happen"
+                          placeholder="What should happen (required)"
                           className="bg-background"
                         />
                       </div>
@@ -2570,7 +2571,7 @@ export default function AgentDetailPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <Button onClick={handleAddTestCase} disabled={!newTestCase.name || !newTestCase.scenario || (!newTestCase.category || (newTestCase.category === "__custom__" && !customCategory))}>
+                      <Button onClick={handleAddTestCase} disabled={!newTestCase.name || !newTestCase.scenario || !newTestCase.expectedOutcome || (!newTestCase.category || (newTestCase.category === "__custom__" && !customCategory))}>
                         <Plus className="mr-2 h-4 w-4" />
                         Add Test Case
                       </Button>
@@ -2602,9 +2603,6 @@ export default function AgentDetailPage() {
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Scenario
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Expected Response
                           </th>
                           <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
                             Priority
@@ -2664,30 +2662,32 @@ export default function AgentDetailPage() {
                                   </td>
                                   <td className="px-4 py-3">
                                     {isEditing ? (
-                                      <Input
-                                        value={editTestCase.scenario}
-                                        onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
-                                        className="h-8 text-sm"
-                                        placeholder="Scenario"
-                                      />
+                                      <div className="space-y-2">
+                                        <Input
+                                          value={editTestCase.scenario}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Scenario"
+                                        />
+                                        <Input
+                                          value={editTestCase.expectedOutcome}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Expected outcome"
+                                        />
+                                      </div>
                                     ) : (
-                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
-                                        {tc.scenario}
-                                      </p>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {isEditing ? (
-                                      <Input
-                                        value={editTestCase.expectedOutcome}
-                                        onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
-                                        className="h-8 text-sm"
-                                        placeholder="Expected response"
-                                      />
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.expectedOutcome}>
-                                        {tc.expectedOutcome || <span className="text-muted-foreground/50 italic">Not specified</span>}
-                                      </p>
+                                      <>
+                                        <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                          {tc.scenario}
+                                        </p>
+                                        {tc.expectedOutcome && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            <span className="font-medium">Expected: </span>
+                                            {tc.expectedOutcome}
+                                          </p>
+                                        )}
+                                      </>
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-center">
@@ -2710,7 +2710,7 @@ export default function AgentDetailPage() {
                                         variant="secondary"
                                         className={`${priorityColors[tc.priority]} text-xs font-medium`}
                                       >
-                                        {tc.priority}
+                                        {tc.priority.charAt(0).toUpperCase() + tc.priority.slice(1)}
                                       </Badge>
                                     )}
                                   </td>
@@ -3409,18 +3409,48 @@ export default function AgentDetailPage() {
             </Button>
             {dynamicVariables.length > 0 && (
               <Button
-                onClick={() => {
-                  // Save variables to localStorage for use in test runs
+                disabled={isSavingVariables}
+                onClick={async () => {
+                  // Save variables to backend
                   const varsToSave = dynamicVariables.reduce((acc, v) => {
                     if (v.testValue) acc[v.name] = v.testValue;
                     return acc;
                   }, {} as Record<string, string>);
-                  localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
-                  setShowDynamicVariablesDialog(false);
-                  alert('Test values saved! They will be used when running tests.');
+                  
+                  setIsSavingVariables(true);
+                  try {
+                    const token = await getToken();
+                    const response = await fetch(api.endpoints.agents.dynamicVariables(agentId), {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ variables: varsToSave }),
+                    });
+                    
+                    if (!response.ok) {
+                      throw new Error('Failed to save');
+                    }
+                    
+                    // Also save to localStorage as backup
+                    localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
+                    setShowDynamicVariablesDialog(false);
+                  } catch (err) {
+                    console.error('Error saving dynamic variables:', err);
+                    // Still save to localStorage as fallback
+                    localStorage.setItem(`agent-${agentId}-variables`, JSON.stringify(varsToSave));
+                    setShowDynamicVariablesDialog(false);
+                  } finally {
+                    setIsSavingVariables(false);
+                  }
                 }}
               >
-                <Check className="mr-2 h-4 w-4" />
+                {isSavingVariables ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-2 h-4 w-4" />
+                )}
                 Save Test Values
               </Button>
             )}
