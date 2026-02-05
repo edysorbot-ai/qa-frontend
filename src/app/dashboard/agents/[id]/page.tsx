@@ -62,6 +62,8 @@ import {
   ExternalLink,
   Eye,
   Maximize2,
+  Shield,
+  Activity,
 } from "lucide-react";
 import {
   Dialog,
@@ -74,6 +76,7 @@ import {
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { TestFlowTab, WorkflowExecutionPlan, TestCaseData as WorkflowTestCase } from "@/components/workflow";
+import { ConsistencyTestPanel } from "@/components/consistency-test-panel";
 
 type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom" | "bolna" | "livekit" | "haptik";
 
@@ -215,27 +218,27 @@ const providerNames: Record<Provider, string> = {
 
 const priorityColors: Record<string, string> = {
   high: "bg-red-100 text-red-800",
-  medium: "bg-slate-100 text-slate-800",
+  medium: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
   low: "bg-green-100 text-green-800",
 };
 
 const categoryColors: Record<string, string> = {
   "Happy Path": "bg-green-100 text-green-800",
-  "Edge Case": "bg-slate-100 text-slate-800",
+  "Edge Case": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
   "Error Handling": "bg-red-100 text-red-800",
-  "Boundary Testing": "bg-slate-100 text-slate-800",
-  "Conversation Flow": "bg-slate-100 text-slate-800",
-  "Tool/Function Testing": "bg-slate-100 text-slate-800",
+  "Boundary Testing": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  "Conversation Flow": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  "Tool/Function Testing": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
   "Off-Topic": "bg-gray-100 text-gray-800",
-  "General": "bg-slate-100 text-slate-800",
-  "Custom": "bg-slate-100 text-slate-800",
+  "General": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  "Custom": "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
 };
 
 const providerColors: Record<Provider, string> = {
-  elevenlabs: "bg-slate-100 text-slate-800",
-  retell: "bg-slate-100 text-slate-800",
-  vapi: "bg-slate-100 text-slate-800",
-  openai_realtime: "bg-slate-100 text-slate-800",
+  elevenlabs: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  retell: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  vapi: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
+  openai_realtime: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-100",
   custom: "bg-purple-100 text-purple-800",
   bolna: "bg-emerald-100 text-emerald-800",
   livekit: "bg-blue-100 text-blue-800",
@@ -497,10 +500,22 @@ export default function AgentDetailPage() {
       
       if (response.ok) {
         const data = await response.json();
-        // Add testValue field for user input
+        
+        // Load saved values from localStorage
+        let savedVars: Record<string, string> = {};
+        try {
+          const savedData = localStorage.getItem(`agent-${agentId}-variables`);
+          if (savedData) {
+            savedVars = JSON.parse(savedData);
+          }
+        } catch (e) {
+          console.error("Error loading saved variables:", e);
+        }
+        
+        // Add testValue field for user input, using saved values if available
         const varsWithTestValue = (data.variables || []).map((v: DynamicVariable) => ({
           ...v,
-          testValue: v.defaultValue || '',
+          testValue: savedVars[v.name] || v.defaultValue || '',
         }));
         setDynamicVariables(varsWithTestValue);
       }
@@ -1706,6 +1721,14 @@ export default function AgentDetailPage() {
             <Play className="mr-2 h-4 w-4" />
             Previous Test Runs
           </TabsTrigger>
+          <TabsTrigger value="security">
+            <Shield className="mr-2 h-4 w-4" />
+            Security
+          </TabsTrigger>
+          <TabsTrigger value="consistency">
+            <Activity className="mr-2 h-4 w-4" />
+            Consistency
+          </TabsTrigger>
         </TabsList>
 
         {/* Configuration Tab */}
@@ -2592,9 +2615,6 @@ export default function AgentDetailPage() {
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Scenario
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-48">
-                            Expected Response
-                          </th>
                           <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24">
                             Priority
                           </th>
@@ -2653,30 +2673,32 @@ export default function AgentDetailPage() {
                                   </td>
                                   <td className="px-4 py-3">
                                     {isEditing ? (
-                                      <Input
-                                        value={editTestCase.scenario}
-                                        onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
-                                        className="h-8 text-sm"
-                                        placeholder="Scenario"
-                                      />
+                                      <div className="space-y-2">
+                                        <Input
+                                          value={editTestCase.scenario}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Scenario"
+                                        />
+                                        <Input
+                                          value={editTestCase.expectedOutcome}
+                                          onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
+                                          className="h-8 text-sm"
+                                          placeholder="Expected outcome"
+                                        />
+                                      </div>
                                     ) : (
-                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
-                                        {tc.scenario}
-                                      </p>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {isEditing ? (
-                                      <Input
-                                        value={editTestCase.expectedOutcome}
-                                        onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
-                                        className="h-8 text-sm"
-                                        placeholder="Expected response (required)"
-                                      />
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground line-clamp-2" title={tc.expectedOutcome}>
-                                        {tc.expectedOutcome || <span className="text-amber-500 italic">Not specified</span>}
-                                      </p>
+                                      <>
+                                        <p className="text-sm text-muted-foreground line-clamp-2" title={tc.scenario}>
+                                          {tc.scenario}
+                                        </p>
+                                        {tc.expectedOutcome && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            <span className="font-medium">Expected: </span>
+                                            {tc.expectedOutcome}
+                                          </p>
+                                        )}
+                                      </>
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-center">
@@ -2902,6 +2924,73 @@ export default function AgentDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Security Tab */}
+        <TabsContent value="security" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Security Testing
+              </CardTitle>
+              <CardDescription>
+                Security tests are now integrated into the Test Cases workflow
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-6 bg-muted/50 rounded-lg text-center">
+                <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2">Create Security Test Cases</h3>
+                <p className="text-muted-foreground mb-4">
+                  Security tests for data leakage, prompt injection, PII handling, and more are now 
+                  created as regular test cases with the &quot;Security Test&quot; option enabled.
+                </p>
+                <div className="flex justify-center gap-3">
+                  <Button asChild>
+                    <a href="/dashboard/test-cases">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Security Test Cases
+                    </a>
+                  </Button>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                    <span className="font-medium">Data Leakage</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Test if agent leaks sensitive data across conversations
+                  </p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    <span className="font-medium">Prompt Injection</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Test resistance to prompt injection attacks
+                  </p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <span className="font-medium">PII Handling</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Test proper handling of personal information
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Consistency Tab */}
+        <TabsContent value="consistency" className="space-y-4">
+          <ConsistencyTestPanel agentId={agentId} />
         </TabsContent>
 
         {/* Knowledge Base Tab */}

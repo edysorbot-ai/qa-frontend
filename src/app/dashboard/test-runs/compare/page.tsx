@@ -254,7 +254,7 @@ function CompareTestRunsContent() {
                       <span className="text-muted-foreground">Pass Rate</span>
                       <span className={`text-2xl font-bold ${
                         metrics.passRate >= 70 ? 'text-green-600' : 
-                        metrics.passRate >= 40 ? 'text-slate-600' : 'text-red-600'
+                        metrics.passRate >= 40 ? 'text-teal-700' : 'text-red-600'
                       }`}>
                         {metrics.passRate.toFixed(1)}%
                       </span>
@@ -263,7 +263,7 @@ function CompareTestRunsContent() {
                       <div 
                         className={`h-full ${
                           metrics.passRate >= 70 ? 'bg-green-500' : 
-                          metrics.passRate >= 40 ? 'bg-slate-500' : 'bg-red-500'
+                          metrics.passRate >= 40 ? 'bg-teal-600' : 'bg-red-500'
                         }`}
                         style={{ width: `${metrics.passRate}%` }}
                       />

@@ -164,9 +164,18 @@ export default function CallDetailPage() {
       if (response.ok) {
         // Poll for completion
         const checkAnalysis = async () => {
-          await fetchCall();
-          if (call?.analysis_status === "analyzing") {
-            setTimeout(checkAnalysis, 2000);
+          const pollToken = await getToken();
+          const pollResponse = await fetch(api.endpoints.monitoring.call(callId), {
+            headers: { Authorization: `Bearer ${pollToken}` },
+          });
+          if (pollResponse.ok) {
+            const data = await pollResponse.json();
+            setCall(data.call);
+            if (data.call?.analysis_status === "analyzing") {
+              setTimeout(checkAnalysis, 2000);
+            } else {
+              setReanalyzing(false);
+            }
           } else {
             setReanalyzing(false);
           }

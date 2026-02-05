@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -59,11 +59,11 @@ const menuItems = [
     icon: CalendarClock,
     href: "/dashboard/scheduled-tests",
   },
-  // {
-  //   title: "Realtime Monitoring",
-  //   icon: Activity,
-  //   href: "/dashboard/monitoring",
-  // },
+  {
+    title: "Production Monitoring",
+    icon: Activity,
+    href: "/dashboard/monitoring",
+  },
   {
     title: "Settings",
     icon: Settings,
@@ -76,12 +76,13 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
   const { signOut } = useClerk();
   const pathname = usePathname();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-
-  // Prevent hydration mismatch with Radix UI components
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  
+  // Use useSyncExternalStore to prevent hydration mismatch
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   const handleSignOut = async () => {
     await signOut();

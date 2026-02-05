@@ -94,14 +94,14 @@ const providerNames: Record<Provider, string> = {
 };
 
 const providerColors: Record<Provider, string> = {
-  elevenlabs: "bg-slate-100 text-slate-800",
-  retell: "bg-slate-100 text-slate-800",
-  vapi: "bg-slate-100 text-slate-800",
-  openai_realtime: "bg-slate-100 text-slate-800",
-  custom: "bg-purple-100 text-purple-800",
-  bolna: "bg-emerald-100 text-emerald-800",
-  livekit: "bg-blue-100 text-blue-800",
-  haptik: "bg-orange-100 text-orange-800",
+  elevenlabs: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  retell: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  vapi: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  openai_realtime: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  custom: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  bolna: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  livekit: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  haptik: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
 };
 
 // LLM Model interface from OpenRouter
@@ -772,7 +772,7 @@ ${customConfig.agentType === "voice" ? "5. Confirm important information by repe
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : connectedIntegrations.length === 0 ? (
-                <div className="flex items-center gap-2 p-4 bg-slate-100 rounded-lg text-slate-700">
+                <div className="flex items-center gap-2 p-4 bg-teal-100 rounded-lg text-teal-700 dark:bg-[#0A2E2F] dark:text-teal-100">
                   <AlertCircle className="h-5 w-5" />
                   <span className="text-sm">
                     No integrations connected. Please add an integration in

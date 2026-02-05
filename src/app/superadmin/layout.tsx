@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
   LayoutDashboard,
   Users,
@@ -13,7 +14,6 @@ import {
   Link2,
   Activity,
   LogOut,
-  Settings,
   CreditCard,
   ChevronRight,
 } from "lucide-react";
@@ -112,18 +112,20 @@ export default function SuperAdminLayout({
   return (
     <div className="min-h-screen bg-black flex">
       {/* Sidebar */}
-      <aside className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col fixed h-full">
+      <aside className="w-64 bg-[#0A2E2F] border-r border-[#0F3D3E] flex flex-col fixed h-full">
         {/* Logo */}
-        <div className="p-6 border-b border-zinc-800">
+        <div className="p-6 border-b border-[#0F3D3E]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-              <Settings className="w-5 h-5 text-black" />
-            </div>
-            <div>
-              <h1 className="text-white font-semibold text-lg">Admin Panel</h1>
-              <p className="text-zinc-500 text-xs">Super Admin</p>
-            </div>
+            <Image
+              src="/stablr.svg"
+              alt="STABLR"
+              width={110}
+              height={32}
+              priority
+              className="h-8 w-auto"
+            />
           </div>
+          <p className="text-teal-300 text-xs mt-2">Super Admin</p>
         </div>
 
         {/* Navigation */}
@@ -136,8 +138,8 @@ export default function SuperAdminLayout({
                 href={item.href}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-white text-black"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                    ? "bg-[#10B981] text-white"
+                    : "text-teal-200 hover:text-white hover:bg-[#0F3D3E]"
                 }`}
               >
                 <item.icon className="w-5 h-5" />
@@ -149,9 +151,9 @@ export default function SuperAdminLayout({
         </nav>
 
         {/* User & Logout */}
-        <div className="p-4 border-t border-zinc-800">
+        <div className="p-4 border-t border-[#0F3D3E]">
           <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-[#0F3D3E] rounded-full flex items-center justify-center">
               <span className="text-white text-sm font-medium">
                 {adminUser?.username?.charAt(0).toUpperCase() || "A"}
               </span>
@@ -160,14 +162,14 @@ export default function SuperAdminLayout({
               <p className="text-white text-sm font-medium truncate">
                 {adminUser?.username || "Admin"}
               </p>
-              <p className="text-zinc-500 text-xs truncate">
+              <p className="text-teal-300 text-xs truncate">
                 {adminUser?.role || "superadmin"}
               </p>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-900 w-full transition-all"
+            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-teal-200 hover:text-white hover:bg-[#0F3D3E] w-full transition-all"
           >
             <LogOut className="w-5 h-5" />
             <span>Logout</span>

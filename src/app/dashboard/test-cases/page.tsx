@@ -49,8 +49,66 @@ import {
   RefreshCw,
   Layers,
   GripVertical,
+  User,
+  Shield,
+  Volume2,
+  AlertTriangle,
 } from "lucide-react";
 import api from "@/lib/api";
+
+// Persona and Security Types
+type PersonaType = 'neutral' | 'angry' | 'confused' | 'impatient' | 'elderly' | 'technical' | 'rambling' | 'suspicious' | 'friendly' | 'rushed';
+type VoiceAccent = 'american' | 'british' | 'australian' | 'indian' | 'spanish' | 'french' | 'german' | 'chinese' | 'japanese' | 'neutral';
+type BehaviorModifier = 'interrupts_frequently' | 'long_pauses' | 'background_noise' | 'mumbles' | 'repeats_self' | 'changes_topic' | 'gives_partial_info' | 'asks_many_questions' | 'mono_syllabic' | 'emotional';
+type SecurityTestType = 'data_leakage' | 'prompt_injection' | 'jailbreak_attempt' | 'pii_handling' | 'unauthorized_access' | 'social_engineering';
+
+const PERSONA_OPTIONS: { value: PersonaType; label: string; description: string; emoji: string }[] = [
+  { value: 'neutral', label: 'Neutral', description: 'Standard professional caller', emoji: '😐' },
+  { value: 'angry', label: 'Angry', description: 'Frustrated, upset customer', emoji: '😠' },
+  { value: 'confused', label: 'Confused', description: 'Uncertain, needs clarification', emoji: '😕' },
+  { value: 'impatient', label: 'Impatient', description: 'Wants quick answers, interrupts', emoji: '⏰' },
+  { value: 'elderly', label: 'Elderly', description: 'Slower pace, may need repetition', emoji: '👴' },
+  { value: 'technical', label: 'Technical', description: 'Tech-savvy, uses jargon', emoji: '🤓' },
+  { value: 'rambling', label: 'Rambling', description: 'Goes off-topic, verbose', emoji: '🗣️' },
+  { value: 'suspicious', label: 'Suspicious', description: 'Skeptical, questions everything', emoji: '🤨' },
+  { value: 'friendly', label: 'Friendly', description: 'Warm, cooperative', emoji: '😊' },
+  { value: 'rushed', label: 'Rushed', description: 'In a hurry, brief responses', emoji: '🏃' },
+];
+
+const ACCENT_OPTIONS: { value: VoiceAccent; label: string; flag: string }[] = [
+  { value: 'neutral', label: 'Neutral', flag: '🌐' },
+  { value: 'american', label: 'American', flag: '🇺🇸' },
+  { value: 'british', label: 'British', flag: '🇬🇧' },
+  { value: 'australian', label: 'Australian', flag: '🇦🇺' },
+  { value: 'indian', label: 'Indian', flag: '🇮🇳' },
+  { value: 'spanish', label: 'Spanish', flag: '🇪🇸' },
+  { value: 'french', label: 'French', flag: '🇫🇷' },
+  { value: 'german', label: 'German', flag: '🇩🇪' },
+  { value: 'chinese', label: 'Chinese', flag: '🇨🇳' },
+  { value: 'japanese', label: 'Japanese', flag: '🇯🇵' },
+];
+
+const BEHAVIOR_OPTIONS: { value: BehaviorModifier; label: string }[] = [
+  { value: 'interrupts_frequently', label: 'Interrupts frequently' },
+  { value: 'long_pauses', label: 'Long pauses' },
+  { value: 'background_noise', label: 'Background noise' },
+  { value: 'mumbles', label: 'Mumbles/unclear speech' },
+  { value: 'repeats_self', label: 'Repeats themselves' },
+  { value: 'changes_topic', label: 'Changes topic randomly' },
+  { value: 'gives_partial_info', label: 'Gives partial info' },
+  { value: 'asks_many_questions', label: 'Asks many questions' },
+  { value: 'mono_syllabic', label: 'Mono-syllabic responses' },
+  { value: 'emotional', label: 'Emotional/expressive' },
+];
+
+const SECURITY_TEST_OPTIONS: { value: SecurityTestType; label: string; description: string }[] = [
+  { value: 'data_leakage', label: 'Data Leakage', description: 'Test if agent leaks sensitive data across conversations' },
+  { value: 'prompt_injection', label: 'Prompt Injection', description: 'Test resistance to prompt injection attacks' },
+  { value: 'jailbreak_attempt', label: 'Jailbreak Attempt', description: 'Test resistance to jailbreak attempts' },
+  { value: 'pii_handling', label: 'PII Handling', description: 'Test proper handling of personal information' },
+  { value: 'unauthorized_access', label: 'Unauthorized Access', description: 'Test for unauthorized data access' },
+  { value: 'social_engineering', label: 'Social Engineering', description: 'Test resistance to social engineering' },
+];
 
 interface KeyTopic {
   name: string;
@@ -69,7 +127,14 @@ interface TestCase {
   key_topic?: string;
   test_type?: string;
   batch_compatible?: boolean;
-  test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
+  test_mode?: 'voice' | 'chat' | 'auto';
+  persona_type?: PersonaType;
+  persona_traits?: string[];
+  voice_accent?: VoiceAccent;
+  behavior_modifiers?: BehaviorModifier[];
+  is_security_test?: boolean;
+  security_test_type?: SecurityTestType;
+  sensitive_data_types?: string[];
   created_at: string;
 }
 
@@ -114,6 +179,12 @@ export default function TestCasesPage() {
     scenario: "",
     expected_behavior: "",
     key_topic: "",
+    persona_type: "neutral" as PersonaType,
+    voice_accent: "neutral" as VoiceAccent,
+    behavior_modifiers: [] as BehaviorModifier[],
+    is_security_test: false,
+    security_test_type: "" as SecurityTestType | "",
+    sensitive_data_types: [] as string[],
   });
   
   // Batch states
@@ -345,6 +416,7 @@ export default function TestCasesPage() {
         body: JSON.stringify({
           ...newTestCase,
           agent_id: selectedAgentId,
+          security_test_type: newTestCase.security_test_type || null,
         }),
       });
       
@@ -357,6 +429,12 @@ export default function TestCasesPage() {
           scenario: "",
           expected_behavior: "",
           key_topic: "",
+          persona_type: "neutral",
+          voice_accent: "neutral",
+          behavior_modifiers: [],
+          is_security_test: false,
+          security_test_type: "",
+          sensitive_data_types: [],
         });
       }
     } catch (error) {
@@ -562,14 +640,15 @@ export default function TestCasesPage() {
                 Add Manual
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add Test Case</DialogTitle>
                 <DialogDescription>
-                  Create a new test case manually
+                  Create a new test case with persona and security options
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
+                {/* Basic Info */}
                 <div className="grid gap-2">
                   <Label htmlFor="name">Name</Label>
                   <Input
@@ -589,17 +668,17 @@ export default function TestCasesPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="scenario">Scenario / Caller Persona</Label>
+                  <Label htmlFor="scenario">Scenario / Caller Behavior</Label>
                   <Textarea
                     id="scenario"
-                    placeholder="Describe how the test caller should behave..."
+                    placeholder="Describe what the test caller says and does..."
                     value={newTestCase.scenario}
                     onChange={(e) => setNewTestCase({ ...newTestCase, scenario: e.target.value })}
                     rows={3}
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="expected">Expected Behavior</Label>
+                  <Label htmlFor="expected">Expected Agent Behavior</Label>
                   <Textarea
                     id="expected"
                     placeholder="What should the agent do in response..."
@@ -608,6 +687,146 @@ export default function TestCasesPage() {
                     rows={3}
                   />
                 </div>
+                
+                {/* Persona Section */}
+                <div className="border rounded-lg p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    <Label className="text-base font-semibold">Caller Persona</Label>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Personality Type</Label>
+                      <Select
+                        value={newTestCase.persona_type}
+                        onValueChange={(v) => setNewTestCase({ ...newTestCase, persona_type: v as PersonaType })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select persona" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PERSONA_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              <div className="flex items-center gap-2">
+                                <span>{option.emoji}</span>
+                                <span>{option.label}</span>
+                                <span className="text-xs text-muted-foreground">- {option.description}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="grid gap-2">
+                      <Label className="flex items-center gap-2">
+                        <Volume2 className="h-3 w-3" />
+                        Voice Accent
+                      </Label>
+                      <Select
+                        value={newTestCase.voice_accent}
+                        onValueChange={(v) => setNewTestCase({ ...newTestCase, voice_accent: v as VoiceAccent })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select accent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ACCENT_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              <div className="flex items-center gap-2">
+                                <span>{option.flag}</span>
+                                <span>{option.label}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  <div className="grid gap-2">
+                    <Label>Behavior Modifiers (Optional)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {BEHAVIOR_OPTIONS.map((option) => (
+                        <Badge
+                          key={option.value}
+                          variant={newTestCase.behavior_modifiers.includes(option.value) ? "default" : "outline"}
+                          className="cursor-pointer hover:bg-primary/80"
+                          onClick={() => {
+                            const modifiers = newTestCase.behavior_modifiers.includes(option.value)
+                              ? newTestCase.behavior_modifiers.filter(m => m !== option.value)
+                              : [...newTestCase.behavior_modifiers, option.value];
+                            setNewTestCase({ ...newTestCase, behavior_modifiers: modifiers });
+                          }}
+                        >
+                          {option.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Security Section */}
+                <div className="border rounded-lg p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4" />
+                      <Label className="text-base font-semibold">Security Test</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="is_security_test"
+                        checked={newTestCase.is_security_test}
+                        onCheckedChange={(checked) => setNewTestCase({ 
+                          ...newTestCase, 
+                          is_security_test: checked as boolean,
+                          security_test_type: checked ? newTestCase.security_test_type : ""
+                        })}
+                      />
+                      <Label htmlFor="is_security_test" className="text-sm cursor-pointer">
+                        This is a security test
+                      </Label>
+                    </div>
+                  </div>
+                  
+                  {newTestCase.is_security_test && (
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <Label>Security Test Type</Label>
+                        <Select
+                          value={newTestCase.security_test_type}
+                          onValueChange={(v) => setNewTestCase({ ...newTestCase, security_test_type: v as SecurityTestType })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select security test type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SECURITY_TEST_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{option.label}</span>
+                                  <span className="text-xs text-muted-foreground">{option.description}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                        <div className="flex gap-2">
+                          <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                            Security tests verify that your agent doesn&apos;t leak sensitive data, resist prompt injection, and handle PII correctly.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Topic */}
                 <div className="grid gap-2">
                   <Label htmlFor="topic">Key Topic (Optional)</Label>
                   <Select
@@ -719,57 +938,81 @@ export default function TestCasesPage() {
                   <TableRow>
                     <TableHead className="w-12"></TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>Persona</TableHead>
                     <TableHead>Topic</TableHead>
-                    <TableHead>Type</TableHead>
                     <TableHead className="hidden md:table-cell">Scenario</TableHead>
                     <TableHead className="w-24">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getFilteredTestCases().map((testCase) => (
-                    <TableRow key={testCase.id}>
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedTestCases.has(testCase.id)}
-                          onCheckedChange={() => toggleTestCaseSelection(testCase.id)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{testCase.name}</p>
-                          <p className="text-sm text-muted-foreground line-clamp-1">
-                            {testCase.description}
+                  {getFilteredTestCases().map((testCase) => {
+                    const personaInfo = PERSONA_OPTIONS.find(p => p.value === testCase.persona_type);
+                    const accentInfo = ACCENT_OPTIONS.find(a => a.value === testCase.voice_accent);
+                    return (
+                      <TableRow key={testCase.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedTestCases.has(testCase.id)}
+                            onCheckedChange={() => toggleTestCaseSelection(testCase.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{testCase.name}</p>
+                              {testCase.is_security_test && (
+                                <Badge variant="destructive" className="text-xs">
+                                  <Shield className="h-3 w-3 mr-1" />
+                                  Security
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground line-clamp-1">
+                              {testCase.description}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {personaInfo && personaInfo.value !== 'neutral' && (
+                              <Badge variant="outline" className="text-xs w-fit">
+                                {personaInfo.emoji} {personaInfo.label}
+                              </Badge>
+                            )}
+                            {accentInfo && accentInfo.value !== 'neutral' && (
+                              <Badge variant="outline" className="text-xs w-fit">
+                                {accentInfo.flag} {accentInfo.label}
+                              </Badge>
+                            )}
+                            {(!personaInfo || personaInfo.value === 'neutral') && (!accentInfo || accentInfo.value === 'neutral') && (
+                              <span className="text-xs text-muted-foreground">Neutral</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {testCase.key_topic && (
+                            <Badge variant="secondary">{testCase.key_topic}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <p className="text-sm text-muted-foreground line-clamp-2">
+                            {testCase.scenario}
                           </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {testCase.key_topic && (
-                          <Badge variant="outline">{testCase.key_topic}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {testCase.test_type && (
-                          <Badge variant="secondary">{testCase.test_type}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {testCase.scenario}
-                        </p>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteTestCase(testCase.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteTestCase(testCase.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

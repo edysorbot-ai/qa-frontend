@@ -1045,6 +1045,49 @@ export default function SettingsPage() {
     }
   };
 
+  // Handle disconnect/remove integration
+  const handleDisconnect = async (provider: Provider) => {
+    const state = providerStates[provider];
+    if (!state.integration) return;
+
+    updateProviderState(provider, { isLoading: true, error: null });
+
+    try {
+      const token = await getToken();
+      const response = await fetch(api.endpoints.integrations.delete(state.integration.id), {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        // Reset the provider state to initial
+        updateProviderState(provider, {
+          isLoading: false,
+          isConnected: false,
+          integration: null,
+          apiKeyInput: "",
+          apiSecretInput: "",
+          hostInput: "",
+          isEditing: false,
+          error: null,
+        });
+      } else {
+        const data = await response.json();
+        updateProviderState(provider, {
+          isLoading: false,
+          error: data.message || "Failed to disconnect",
+        });
+      }
+    } catch (error) {
+      updateProviderState(provider, {
+        isLoading: false,
+        error: "Network error. Please try again.",
+      });
+    }
+  };
+
   const renderProviderCard = (providerConfig: ProviderConfig) => {
     const state = providerStates[providerConfig.key];
     const hasApiKey = !!state.integration;
@@ -1055,7 +1098,7 @@ export default function SettingsPage() {
           <CardTitle className="flex items-center justify-between text-base">
             {providerConfig.name}
             {!hasApiKey ? (
-              <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">
+              <span className="text-xs px-2 py-1 rounded-full bg-teal-100 text-teal-700 dark:bg-[#0A2E2F] dark:text-teal-300">
                 Not Connected
               </span>
             ) : state.isConnected ? (
@@ -1158,12 +1201,12 @@ export default function SettingsPage() {
                   disabled={state.isLoading}
                 />
                 <button
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-teal-100 dark:hover:bg-[#0A2E2F] rounded disabled:opacity-50"
                   onClick={() => handleSaveApiKey(providerConfig.key)}
                   disabled={state.isLoading || !state.apiKeyInput.trim()}
                 >
                   {state.isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                    <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
                   ) : (
                     <Check className="h-4 w-4 text-green-600" />
                   )}
@@ -1171,13 +1214,29 @@ export default function SettingsPage() {
               </div>
             )
           ) : (
-            <div className="relative">
-              <Input
-                type="text"
-                value={state.integration?.api_key || ""}
-                readOnly
-                className="pr-10 bg-gray-50 font-mono text-sm"
-              />
+            <div className="space-y-2">
+              <div className="relative">
+                <Input
+                  type="text"
+                  value={state.integration?.api_key || ""}
+                  readOnly
+                  className="pr-10 bg-teal-50 dark:bg-[#0A2E2F] font-mono text-sm"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                onClick={() => handleDisconnect(providerConfig.key)}
+                disabled={state.isLoading}
+              >
+                {state.isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                Disconnect
+              </Button>
             </div>
           )}
         </CardContent>

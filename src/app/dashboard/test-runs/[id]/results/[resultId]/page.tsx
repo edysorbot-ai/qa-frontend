@@ -22,6 +22,7 @@ import {
   BarChart3,
   TrendingUp,
   Wrench,
+  Shield,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
@@ -30,6 +31,8 @@ import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
 import ComprehensiveMetricsDashboard from "@/components/comprehensive-metrics-dashboard";
 import { ContextGrowthChart } from "@/components/context-growth-chart";
 import { ToolDecisionTimeline } from "@/components/tool-decision-timeline";
+import { MarkAsGoldenButton } from "@/components/golden-tests-dashboard";
+import { InferenceScanPanel } from "@/components/inference-scan-panel";
 import { ComprehensiveTestMetrics } from "@/types/metrics";
 
 interface ConversationTurn {
@@ -122,14 +125,14 @@ interface TestResultDetail {
 const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
-  pending: "bg-slate-100 text-slate-800",
+  pending: "bg-teal-100 text-teal-800",
 };
 
 function CircularProgress({ value, label, size = 100 }: { value: number; label: string; size?: number }) {
   const radius = (size - 10) / 2;
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (value / 100) * circumference;
-  const color = value >= 80 ? '#22c55e' : value >= 60 ? '#64748b' : '#ef4444';
+  const color = value >= 80 ? '#22c55e' : value >= 60 ? '#1A5253' : '#ef4444';
   
   return (
     <div className="flex flex-col items-center">
@@ -164,7 +167,7 @@ function CircularProgress({ value, label, size = 100 }: { value: number; label: 
 }
 
 function MetricBar({ label, value }: { label: string; value: number }) {
-  const color = value >= 80 ? 'bg-green-500' : value >= 60 ? 'bg-slate-500' : 'bg-red-500';
+  const color = value >= 80 ? 'bg-green-500' : value >= 60 ? 'bg-teal-600' : 'bg-red-500';
   
   return (
     <div className="space-y-1">
@@ -288,6 +291,9 @@ export default function TestResultDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {result.status === "passed" && (
+            <MarkAsGoldenButton resultId={result.id} />
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -349,7 +355,7 @@ export default function TestResultDetailPage() {
               {result.actualResponse && (
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Actual Response</label>
-                  <p className="mt-1 text-sm bg-slate-50 dark:bg-slate-900/20 p-3 rounded-lg border border-slate-200 dark:border-slate-800 whitespace-pre-wrap">
+                  <p className="mt-1 text-sm bg-teal-50 dark:bg-[#0A2E2F]/20 p-3 rounded-lg border border-teal-200 dark:border-teal-800 whitespace-pre-wrap">
                     {result.actualResponse}
                   </p>
                 </div>
@@ -359,8 +365,8 @@ export default function TestResultDetailPage() {
 
           {/* Prompt Improvement Suggestions - Only show for failed tests */}
           {result.status === 'failed' && (
-            <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/20 dark:to-slate-800/20 rounded-lg border-2 border-slate-200 dark:border-slate-700 p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-900 dark:text-slate-100">
+            <div className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-[#0A2E2F]/20 dark:to-[#0F3D3E]/20 rounded-lg border-2 border-teal-200 dark:border-teal-700 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-teal-900 dark:text-teal-100">
                 <AlertTriangle className="h-5 w-5" />
                 Prompt Improvement Suggestions
               </h2>
@@ -376,18 +382,18 @@ export default function TestResultDetailPage() {
 
                 {/* Prompt modifications */}
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
-                  <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-3">Recommended Prompt Additions</h3>
+                  <h3 className="text-sm font-semibold text-teal-700 dark:text-teal-400 mb-3">Recommended Prompt Additions</h3>
                   <div className="space-y-3">
                     {/* Determine prompt suggestions based on category */}
                     {result.category === 'Off-topic Handling' && (
                       <>
-                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
+                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: &apos;I appreciate your question, but I&apos;m specifically designed to help with [your purpose]. Let&apos;s get you back on track with [relevant topic].&apos;&quot;
                           </p>
                           <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Conversation Guidelines section</p>
                         </div>
-                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
+                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;Never engage with off-topic requests. Always acknowledge the user&apos;s question briefly, then redirect to relevant topics within your scope.&quot;
                           </p>
@@ -398,7 +404,7 @@ export default function TestResultDetailPage() {
                     
                     {result.category === 'Budget Inquiry' && (
                       <>
-                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
+                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is &apos;$5000&apos;, maintain the dollar sign and specific amount. Don&apos;t generalize or estimate unless specifically asked to do so.&quot;
                           </p>
@@ -409,7 +415,7 @@ export default function TestResultDetailPage() {
 
                     {result.category === 'User Requests Callback' && (
                       <>
-                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
+                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: &apos;I understand you&apos;d like a callback. Let me collect your preferred contact details and time.&apos;&quot;
                           </p>
@@ -421,7 +427,7 @@ export default function TestResultDetailPage() {
                     {/* Generic fallback for other categories */}
                     {!['Off-topic Handling', 'Budget Inquiry', 'User Requests Callback'].includes(result.category) && (
                       <>
-                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded p-3 border-l-4 border-slate-500">
+                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
                           <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
                             &quot;For {result.category} scenarios: Ensure you {result.expectedResponse.toLowerCase()}. Always prioritize accuracy and completeness in your responses.&quot;
                           </p>
@@ -487,7 +493,7 @@ export default function TestResultDetailPage() {
 
       {/* Tabs for Transcript and Analytics */}
       <Tabs defaultValue="comprehensive" className="mt-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="comprehensive" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
             Metrics
@@ -499,6 +505,10 @@ export default function TestResultDetailPage() {
           <TabsTrigger value="tool-decisions" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
             Tool Decisions
+          </TabsTrigger>
+          <TabsTrigger value="compliance" className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Compliance
           </TabsTrigger>
           <TabsTrigger value="transcript" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
@@ -572,6 +582,11 @@ export default function TestResultDetailPage() {
           <ToolDecisionsTab resultId={result.id} />
         </TabsContent>
 
+        {/* Compliance Tab */}
+        <TabsContent value="compliance" className="mt-6">
+          <InferenceScanPanel testResultId={result.id} />
+        </TabsContent>
+
         {/* Transcript Tab */}
         <TabsContent value="transcript" className="mt-6 space-y-6">
           {/* Call Recording */}
@@ -618,8 +633,8 @@ export default function TestResultDetailPage() {
                     {/* Avatar */}
                     <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
                       turn.role === 'user' 
-                        ? 'bg-slate-800 text-white' 
-                        : 'bg-slate-500 text-white'
+                        ? 'bg-teal-800 text-white' 
+                        : 'bg-teal-600 text-white'
                     }`}>
                       {turn.role === 'user' ? (
                         <User className="h-5 w-5" />
@@ -632,7 +647,7 @@ export default function TestResultDetailPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-sm font-semibold ${
-                          turn.role === 'user' ? 'text-slate-700 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400'
+                          turn.role === 'user' ? 'text-teal-700 dark:text-teal-300' : 'text-teal-600 dark:text-teal-400'
                         }`}>
                           {turn.role === 'user' ? 'TEST CALLER' : 'AI AGENT'}
                         </span>
@@ -644,8 +659,8 @@ export default function TestResultDetailPage() {
                       </div>
                       <div className={`rounded-lg p-4 ${
                         turn.role === 'user'
-                          ? 'bg-slate-100 dark:bg-slate-800'
-                          : 'bg-slate-50 dark:bg-slate-800/50'
+                          ? 'bg-teal-100 dark:bg-[#0A2E2F]'
+                          : 'bg-teal-50 dark:bg-[#0A2E2F]/50'
                       }`}>
                         <p className="text-sm leading-relaxed">{turn.content}</p>
                       </div>
@@ -658,14 +673,14 @@ export default function TestResultDetailPage() {
                 {/* Show user and agent transcripts if no conversation turns */}
                 {result.userTranscript && (
                   <div className="flex gap-3">
-                    <div className="h-10 w-10 rounded-full bg-slate-700 text-white flex items-center justify-center flex-shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-teal-800 text-white flex items-center justify-center flex-shrink-0">
                       <User className="h-5 w-5" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">TEST CALLER</span>
+                        <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">TEST CALLER</span>
                       </div>
-                      <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4">
+                      <div className="bg-teal-100 dark:bg-[#0A2E2F] rounded-lg p-4">
                         <p className="text-sm leading-relaxed">{result.userTranscript}</p>
                       </div>
                     </div>
@@ -673,14 +688,14 @@ export default function TestResultDetailPage() {
                 )}
                 {result.agentTranscript && (
                   <div className="flex gap-3">
-                    <div className="h-10 w-10 rounded-full bg-slate-500 text-white flex items-center justify-center flex-shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-teal-600 text-white flex items-center justify-center flex-shrink-0">
                       <Bot className="h-5 w-5" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">AI AGENT</span>
+                        <span className="text-sm font-semibold text-teal-600 dark:text-teal-400">AI AGENT</span>
                       </div>
-                      <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
+                      <div className="bg-teal-50 dark:bg-[#0A2E2F]/50 rounded-lg p-4">
                         <p className="text-sm leading-relaxed">{result.agentTranscript}</p>
                       </div>
                     </div>
@@ -709,7 +724,7 @@ export default function TestResultDetailPage() {
               <div className="mt-4 text-center">
                 <p className={`text-sm font-medium ${
                   result.overallScore >= 80 ? 'text-green-600' :
-                  result.overallScore >= 60 ? 'text-slate-600' : 'text-red-600'
+                  result.overallScore >= 60 ? 'text-teal-700' : 'text-red-600'
                 }`}>
                   {result.overallScore >= 80 ? 'Excellent' :
                    result.overallScore >= 60 ? 'Good' :

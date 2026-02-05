@@ -51,7 +51,7 @@ export function ContextGrowthChart({ metrics }: ContextGrowthChartProps) {
     );
   }
 
-  const { turns, totalTokensUsed, averageContextGrowth, maxContextSize, contextEfficiencyScore, bloatDetected, bloatTurnNumber, estimatedCostSavings } = metrics;
+  const { turns, totalTokensUsed, averageContextGrowth, contextEfficiencyScore, bloatDetected, bloatTurnNumber, estimatedCostSavings } = metrics;
 
   // Chart dimensions
   const chartWidth = 600;

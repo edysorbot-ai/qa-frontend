@@ -119,6 +119,38 @@ export const api = {
       checkRole: `${API_BASE_URL}/api/team-members/check-role`,
     },
 
+    // Test Results
+    testResults: {
+      scanInferences: (id: string) => `${API_BASE_URL}/api/test-results/${id}/scan-inferences`,
+      getInferenceScan: (id: string) => `${API_BASE_URL}/api/test-results/${id}/inference-scan`,
+      toolDecisions: (id: string) => `${API_BASE_URL}/api/test-results/${id}/tool-decisions`,
+    },
+
+    // Compliance & Security
+    compliance: {
+      agentInferenceScans: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/inference-scans`,
+      complianceSummary: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/compliance-summary`,
+      acknowledgeInference: (inferenceId: string) => `${API_BASE_URL}/api/inferences/${inferenceId}/acknowledge`,
+    },
+
+    // Leakage Testing (Security)
+    leakageTests: {
+      builtinScenarios: `${API_BASE_URL}/api/builtin-scenarios`,
+      scenarios: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/leakage-scenarios`,
+      createScenario: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/leakage-scenarios`,
+      runTest: (agentId: string, scenarioId: string) => `${API_BASE_URL}/api/agents/${agentId}/leakage-tests/${scenarioId}/run`,
+      testRuns: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/leakage-tests`,
+      securitySummary: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/security-summary`,
+    },
+
+    // Consistency Testing
+    consistencyTests: {
+      start: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/consistency-tests`,
+      list: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/consistency-tests`,
+      get: (runId: string) => `${API_BASE_URL}/api/consistency-tests/${runId}`,
+      summary: (agentId: string) => `${API_BASE_URL}/api/agents/${agentId}/consistency-summary`,
+    },
+
     // Realtime Monitoring
     monitoring: {
       sessions: `${API_BASE_URL}/api/monitoring/sessions`,

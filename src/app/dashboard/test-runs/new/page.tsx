@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,12 @@ function NewTestRunContent() {
   const [batchingEnabled, setBatchingEnabled] = useState(true);
   const [concurrencyEnabled, setConcurrencyEnabled] = useState(false);
   const [concurrencyCount, setConcurrencyCount] = useState(3);
+  const concurrencyCountRef = useRef(concurrencyCount);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    concurrencyCountRef.current = concurrencyCount;
+  }, [concurrencyCount]);
   
   // Provider limits state
   const [providerLimits, setProviderLimits] = useState<{
@@ -323,7 +329,7 @@ function NewTestRunContent() {
               const limitsData = await limitsResponse.json();
               setProviderLimits(limitsData.limits);
               // If current concurrency exceeds limit, adjust it
-              if (limitsData.limits?.concurrencyLimit && concurrencyCount > limitsData.limits.concurrencyLimit) {
+              if (limitsData.limits?.concurrencyLimit && concurrencyCountRef.current > limitsData.limits.concurrencyLimit) {
                 setConcurrencyCount(limitsData.limits.concurrencyLimit);
                 setShowConcurrencyWarning(true);
               }

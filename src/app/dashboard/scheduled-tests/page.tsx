@@ -102,7 +102,7 @@ const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const statusColors: Record<string, string> = {
   active: "bg-green-100 text-green-800",
   paused: "bg-yellow-100 text-yellow-800",
-  completed: "bg-gray-100 text-gray-800",
+  completed: "bg-teal-100 text-teal-800 dark:bg-[#0A2E2F] dark:text-teal-300",
 };
 
 const scheduleTypeIcons: Record<string, React.ReactNode> = {
