@@ -81,7 +81,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
     <div className="min-h-screen flex" style={{ backgroundColor: '#ffffff' }}>
       {/* Left Side - Form */}
       <div 
-        className="w-full lg:w-1/2 flex flex-col items-center justify-center px-6 sm:px-12 lg:px-20 py-12 min-h-screen overflow-visible"
+        className="w-full lg:w-[55%] flex flex-col items-center justify-center px-6 sm:px-12 lg:px-20 py-12 min-h-screen overflow-visible"
         style={{ backgroundColor: '#ffffff' }}
       >
         <div className="w-full max-w-[440px] px-4">
@@ -150,25 +150,26 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
       </div>
 
       {/* Right Side - Hero Panel */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-6">
+      <div className="hidden lg:flex lg:w-[45%] items-center justify-center p-6">
         <div 
-          className="w-full h-[calc(100vh-48px)] bg-[#043D44] flex flex-col justify-between p-10 xl:p-12 relative overflow-hidden rounded-[32px]"
+          className="w-full h-[calc(100vh-48px)] flex flex-col justify-between p-10 xl:p-12 relative overflow-hidden rounded-[32px]"
           style={{
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 80px rgba(71, 235, 255, 0.1)',
+            background: 'linear-gradient(180deg, #5E6AD2 0%, #30376C 100%)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 80px rgba(94, 106, 210, 0.2)',
           }}
         >
-        {/* Diagonal gradient with dark corners and light teal in middle */}
+        {/* Subtle gradient overlay for depth */}
         <div 
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: 'linear-gradient(135deg, rgba(1, 20, 24, 1) 0%, rgba(1 , 22, 26, 1) 20%, rgba(2, 30, 35, 0.95) 35%, rgba(35, 110, 115, 0.35) 50%, rgba(2, 30, 35, 0.95) 65%, rgba(1, 22, 26, 1) 80%, rgba(1, 20, 24, 1) 100%)',
+            background: 'linear-gradient(135deg, rgba(94, 106, 210, 0.3) 0%, transparent 50%, rgba(48, 55, 108, 0.3) 100%)',
           }}
         />
         {/* Subtle noise/blur overlay */}
         <div 
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: 'rgba(170, 170, 170, 0.03)',
+            background: 'rgba(255, 255, 255, 0.02)',
             backdropFilter: 'blur(134px)',
           }}
         />
@@ -180,7 +181,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
             Smarter QA for Voice and
             <br />
             Chat AI Agents
-            <span className="text-emerald-400">*</span>
+            <span className="text-white">*</span>
           </h2>
 
           {/* Testimonial */}

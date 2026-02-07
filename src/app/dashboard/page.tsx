@@ -160,12 +160,12 @@ export default function DashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-teal-50 to-teal-100 dark:from-[#0A2E2F] dark:to-[#0F3D3E]">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-teal-200/50 dark:bg-teal-700/30 rounded-full -mr-10 -mt-10" />
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-slate-200/50 dark:bg-slate-700/30 rounded-full -mr-10 -mt-10" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Agents</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-[#0F3D3E] dark:bg-teal-200 flex items-center justify-center">
-              <Bot className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+            <div className="h-9 w-9 rounded-lg bg-slate-700 dark:bg-slate-200 flex items-center justify-center">
+              <Bot className="h-5 w-5 text-white dark:text-slate-700" />
             </div>
           </CardHeader>
           <CardContent>
@@ -176,12 +176,12 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-teal-50 to-teal-100 dark:from-[#0A2E2F] dark:to-[#0F3D3E]">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-teal-200/50 dark:bg-teal-700/30 rounded-full -mr-10 -mt-10" />
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-slate-200/50 dark:bg-slate-700/30 rounded-full -mr-10 -mt-10" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Test Cases</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-[#1A5253] dark:bg-teal-300 flex items-center justify-center">
-              <Target className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+            <div className="h-9 w-9 rounded-lg bg-slate-600 dark:bg-slate-300 flex items-center justify-center">
+              <Target className="h-5 w-5 text-white dark:text-slate-700" />
             </div>
           </CardHeader>
           <CardContent>
@@ -192,12 +192,12 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-teal-50 to-teal-100 dark:from-[#0A2E2F] dark:to-[#0F3D3E]">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-teal-200/50 dark:bg-teal-700/30 rounded-full -mr-10 -mt-10" />
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-slate-200/50 dark:bg-slate-700/30 rounded-full -mr-10 -mt-10" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Test Runs</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-[#10B981] dark:bg-emerald-400 flex items-center justify-center">
-              <Activity className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+            <div className="h-9 w-9 rounded-lg bg-indigo-600 dark:bg-indigo-400 flex items-center justify-center">
+              <Activity className="h-5 w-5 text-white dark:text-slate-900" />
             </div>
           </CardHeader>
           <CardContent>
@@ -208,8 +208,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-teal-50 to-teal-100 dark:from-[#0A2E2F] dark:to-[#0F3D3E]">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-teal-200/50 dark:bg-teal-700/30 rounded-full -mr-10 -mt-10" />
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-slate-200/50 dark:bg-slate-700/30 rounded-full -mr-10 -mt-10" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Pass Rate</CardTitle>
             <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${
@@ -276,7 +276,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {stats.recentTestRuns.map((run) => {
+                {stats.recentTestRuns.slice(0, 3).map((run) => {
                   const passRate = run.total_tests > 0 
                     ? Math.round((run.passed_tests / run.total_tests) * 100) 
                     : 0;
@@ -350,11 +350,11 @@ export default function DashboardPage() {
               Common tasks to get started
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="flex flex-col gap-2">
             <Link href="/dashboard/agents">
-              <div className="flex items-center gap-4 p-4 rounded-xl border border-teal-200 dark:border-[#0F3D3E] hover:border-teal-300 dark:hover:border-[#1A5253] hover:bg-teal-50 dark:hover:bg-[#0A2E2F] cursor-pointer transition-all group">
-                <div className="h-10 w-10 rounded-lg bg-[#0F3D3E] dark:bg-teal-200 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Bot className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-all group">
+                <div className="h-10 w-10 rounded-lg bg-slate-700 dark:bg-slate-200 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Bot className="h-5 w-5 text-white dark:text-slate-700" />
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm">Add Voice Agent</p>
@@ -365,9 +365,9 @@ export default function DashboardPage() {
             </Link>
 
             <Link href="/dashboard/agents">
-              <div className="flex items-center gap-4 p-4 rounded-xl border border-teal-200 dark:border-[#0F3D3E] hover:border-teal-300 dark:hover:border-[#1A5253] hover:bg-teal-50 dark:hover:bg-[#0A2E2F] cursor-pointer transition-all group">
-                <div className="h-10 w-10 rounded-lg bg-[#1A5253] dark:bg-teal-300 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Zap className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-all group">
+                <div className="h-10 w-10 rounded-lg bg-slate-600 dark:bg-slate-300 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Zap className="h-5 w-5 text-white dark:text-slate-700" />
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm">Generate Test Cases</p>
@@ -378,9 +378,9 @@ export default function DashboardPage() {
             </Link>
 
             <Link href="/dashboard/test-runs/new">
-              <div className="flex items-center gap-4 p-4 rounded-xl border border-teal-200 dark:border-[#0F3D3E] hover:border-teal-300 dark:hover:border-[#1A5253] hover:bg-teal-50 dark:hover:bg-[#0A2E2F] cursor-pointer transition-all group">
-                <div className="h-10 w-10 rounded-lg bg-[#10B981] dark:bg-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <PlayCircle className="h-5 w-5 text-white dark:text-[#0F3D3E]" />
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-all group">
+                <div className="h-10 w-10 rounded-lg bg-indigo-600 dark:bg-indigo-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <PlayCircle className="h-5 w-5 text-white dark:text-slate-900" />
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm">Run Test Suite</p>

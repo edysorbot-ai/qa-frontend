@@ -1,5 +1,6 @@
 import { Container } from "@/components/landing/Container";
 import { Github, Twitter, Linkedin } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 const FOOTER_LINKS = {
@@ -31,7 +32,7 @@ const FOOTER_LINKS = {
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
-  
+
   return (
     <footer className="bg-[#0B0C10] pt-32 pb-12">
       <Container>
@@ -39,24 +40,31 @@ export function Footer() {
           {/* Logo and Social Links */}
           <div className="col-span-2 md:col-span-2">
             <div className="flex items-center gap-2 text-[#EEEEEE] font-medium mb-6 text-lg">
-              <div className="w-8 h-8 bg-[#5E6AD2] rounded-lg flex items-center justify-center">
+              {/* <div className="w-8 h-8 bg-[#5E6AD2] rounded-lg flex items-center justify-center">
                 <div className="w-4 h-4 bg-white rounded-sm" />
               </div>
-              <span className="font-semibold tracking-tight">VoiceQA</span>
+              <span className="font-semibold tracking-tight">VoiceQA</span> */}
+              <Image
+                src="/stablrWhite.svg"
+                alt="STABLR"
+                width={120}
+                height={32}
+                className="h-7 w-auto"
+              />
             </div>
             <p className="text-sm text-[#8A8F98] mb-6 max-w-xs">
               Automated testing and quality assurance for voice AI agents.
             </p>
             <div className="flex gap-4">
-              <Link 
-                href="https://twitter.com" 
+              <Link
+                href="https://twitter.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-full bg-[#14151A] border border-[#2A2A2A] text-[#8A8F98] hover:text-[#EEEEEE] hover:border-[#5E6AD2] transition-colors"
               >
                 <Twitter className="w-4 h-4" />
               </Link>
-              <Link 
+              <Link
                 href="https://github.com"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -64,7 +72,7 @@ export function Footer() {
               >
                 <Github className="w-4 h-4" />
               </Link>
-              <Link 
+              <Link
                 href="https://linkedin.com"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -74,14 +82,17 @@ export function Footer() {
               </Link>
             </div>
           </div>
-          
+
           {/* Product Links */}
           <div>
             <h4 className="text-[#EEEEEE] font-medium mb-4">Product</h4>
             <ul className="space-y-3 text-sm text-[#8A8F98]">
               {FOOTER_LINKS.product.map((item) => (
                 <li key={item.title}>
-                  <Link href={item.href} className="hover:text-[#EEEEEE] transition-colors">
+                  <Link
+                    href={item.href}
+                    className="hover:text-[#EEEEEE] transition-colors"
+                  >
                     {item.title}
                   </Link>
                 </li>
@@ -95,7 +106,10 @@ export function Footer() {
             <ul className="space-y-3 text-sm text-[#8A8F98]">
               {FOOTER_LINKS.resources.map((item) => (
                 <li key={item.title}>
-                  <Link href={item.href} className="hover:text-[#EEEEEE] transition-colors">
+                  <Link
+                    href={item.href}
+                    className="hover:text-[#EEEEEE] transition-colors"
+                  >
                     {item.title}
                   </Link>
                 </li>
@@ -109,7 +123,10 @@ export function Footer() {
             <ul className="space-y-3 text-sm text-[#8A8F98]">
               {FOOTER_LINKS.company.map((item) => (
                 <li key={item.title}>
-                  <Link href={item.href} className="hover:text-[#EEEEEE] transition-colors">
+                  <Link
+                    href={item.href}
+                    className="hover:text-[#EEEEEE] transition-colors"
+                  >
                     {item.title}
                   </Link>
                 </li>
@@ -123,7 +140,10 @@ export function Footer() {
             <ul className="space-y-3 text-sm text-[#8A8F98]">
               {FOOTER_LINKS.providers.map((item) => (
                 <li key={item.title}>
-                  <Link href={item.href} className="hover:text-[#EEEEEE] transition-colors">
+                  <Link
+                    href={item.href}
+                    className="hover:text-[#EEEEEE] transition-colors"
+                  >
                     {item.title}
                   </Link>
                 </li>
@@ -131,13 +151,17 @@ export function Footer() {
             </ul>
           </div>
         </div>
-        
+
         {/* Copyright */}
         <div className="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-[#2A2A2A] text-xs text-[#555]">
           <div>&copy; {currentYear} VoiceQA. All rights reserved.</div>
           <div className="flex gap-6 mt-4 md:mt-0">
-            <Link href="#" className="hover:text-[#8A8F98] transition-colors">Terms of Service</Link>
-            <Link href="#" className="hover:text-[#8A8F98] transition-colors">Privacy Policy</Link>
+            <Link href="#" className="hover:text-[#8A8F98] transition-colors">
+              Terms of Service
+            </Link>
+            <Link href="#" className="hover:text-[#8A8F98] transition-colors">
+              Privacy Policy
+            </Link>
           </div>
         </div>
       </Container>
