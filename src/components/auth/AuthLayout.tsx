@@ -150,12 +150,28 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
       </div>
 
       {/* Right Side - Hero Panel */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#0D3D3B] via-[#0A4744] to-[#063532] flex-col justify-between p-10 xl:p-12 relative overflow-hidden min-h-screen">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 right-20 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
-          <div className="absolute bottom-40 left-10 w-48 h-48 bg-emerald-400/10 rounded-full blur-2xl" />
-        </div>
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-6">
+        <div 
+          className="w-full h-[calc(100vh-48px)] bg-[#043D44] flex flex-col justify-between p-10 xl:p-12 relative overflow-hidden rounded-[32px]"
+          style={{
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 80px rgba(71, 235, 255, 0.1)',
+          }}
+        >
+        {/* Diagonal gradient with dark corners and light teal in middle */}
+        <div 
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'linear-gradient(135deg, rgba(1, 20, 24, 1) 0%, rgba(1 , 22, 26, 1) 20%, rgba(2, 30, 35, 0.95) 35%, rgba(35, 110, 115, 0.35) 50%, rgba(2, 30, 35, 0.95) 65%, rgba(1, 22, 26, 1) 80%, rgba(1, 20, 24, 1) 100%)',
+          }}
+        />
+        {/* Subtle noise/blur overlay */}
+        <div 
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'rgba(170, 170, 170, 0.03)',
+            backdropFilter: 'blur(134px)',
+          }}
+        />
 
         {/* Content */}
         <div className="relative z-10 flex-1 flex flex-col justify-center max-w-lg">
@@ -205,6 +221,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
               </div>
             ))}
           </div>
+        </div>
         </div>
       </div>
     </div>
