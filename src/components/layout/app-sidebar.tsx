@@ -37,7 +37,6 @@ import {
   CalendarClock,
   Activity,
   BarChart3,
-  ClipboardList,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
@@ -53,11 +52,6 @@ const menuItems = [
     title: "Agents",
     icon: Users,
     href: "/dashboard/agents",
-  },
-  {
-    title: "Test Cases",
-    icon: ClipboardList,
-    href: "/dashboard/test-cases",
   },
   {
     title: "Test Runs",
