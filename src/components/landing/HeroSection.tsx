@@ -4,12 +4,23 @@ import { Container } from "@/components/landing/Container";
 import { Button } from "@/components/landing/Button";
 import {
   ArrowRight,
-  Phone,
+  Bot,
   CheckCircle2,
   Activity,
   Sparkles,
   Play,
   Mic,
+  LayoutDashboard,
+  Users,
+  PlayCircle,
+  CalendarClock,
+  Settings,
+  ChevronLeft,
+  Square,
+  RefreshCw,
+  Target,
+  TrendingUp,
+  BarChart3,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -109,62 +120,35 @@ export function HeroSection() {
 
           <div className="flex h-[550px] text-left relative z-10">
             {/* Sidebar */}
-            <div className="w-64 border-r border-[#2A2A2A] bg-[#111216]/50 backdrop-blur-sm hidden md:flex md:flex-col">
+            <div className="w-56 border-r border-[#2A2A2A] bg-[#111216]/50 backdrop-blur-sm hidden md:flex md:flex-col">
               <div className="p-4 border-b border-[#2A2A2A]">
-                <div className="flex items-center gap-2 text-[#EEEEEE] text-sm font-medium">
-                  <Phone className="w-4 h-4 text-[#5E6AD2]" />
-                  Test Runs
+                <div className="flex items-center gap-2 text-[#EEEEEE] text-sm font-semibold">
+                  <Bot className="w-4 h-4 text-[#5E6AD2]" />
+                  Voice QA
                 </div>
               </div>
 
-              <div className="p-3 space-y-2">
-                <div className="px-2 py-1.5 text-[11px] font-semibold text-[#555] uppercase tracking-wider">
-                  Recent Tests
-                </div>
-                <div className="space-y-0.5">
-                  {[
-                    {
-                      name: "Customer Support Bot",
-                      status: "passed",
-                      provider: "ElevenLabs",
-                    },
-                    {
-                      name: "Sales Assistant",
-                      status: "passed",
-                      provider: "Retell",
-                    },
-                    {
-                      name: "Appointment Scheduler",
-                      status: "failed",
-                      provider: "VAPI",
-                    },
-                    {
-                      name: "FAQ Handler",
-                      status: "running",
-                      provider: "OpenAI",
-                    },
-                  ].map((test, i) => (
-                    <div
-                      key={test.name}
-                      className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm cursor-pointer transition-colors ${
-                        i === 0
-                          ? "bg-[#1F2026] text-[#EEEEEE] shadow-sm ring-1 ring-white/5"
-                          : "text-[#8A8F98] hover:text-[#EEEEEE] hover:bg-[#1F2026]/50"
-                      }`}
-                    >
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          test.status === "passed"
-                            ? "bg-green-500"
-                            : test.status === "failed"
-                              ? "bg-red-500"
-                              : "bg-yellow-500 animate-pulse"
-                        }`}
-                      />
-                      <span className="truncate">{test.name}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="p-3 space-y-0.5">
+                {[
+                  { icon: LayoutDashboard, name: "Dashboard", active: false },
+                  { icon: Users, name: "Agents", active: false },
+                  { icon: PlayCircle, name: "Test Runs", active: true },
+                  { icon: CalendarClock, name: "Test Schedules", active: false },
+                  { icon: Activity, name: "Monitoring", active: false },
+                  { icon: Settings, name: "Settings", active: false },
+                ].map((item) => (
+                  <div
+                    key={item.name}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm cursor-pointer transition-colors ${
+                      item.active
+                        ? "bg-[#1F2026] text-[#EEEEEE] shadow-sm ring-1 ring-white/5"
+                        : "text-[#8A8F98] hover:text-[#EEEEEE] hover:bg-[#1F2026]/50"
+                    }`}
+                  >
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -172,27 +156,38 @@ export function HeroSection() {
             <div className="flex-1 bg-[#0B0C10]/50 flex flex-col relative">
               {/* Header */}
               <div className="h-16 border-b border-[#2A2A2A] flex items-center justify-between px-6 bg-[#111216]/30 backdrop-blur-sm">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <span className="text-[#EEEEEE] font-medium text-lg">
-                    Customer Support Bot Test
+                    Customer Support Bot
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-[#5E6AD2]/15 text-[#5E6AD2] border border-[#5E6AD2]/20">
+                    ElevenLabs
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]">
-                    Passed
+                    23/24 Passed
                   </span>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <Button
                     size="sm"
                     variant="secondary"
                     className="h-8 text-xs gap-1.5 bg-[#1F2026] hover:bg-[#2A2A2A] border-[#2A2A2A] text-[#EEEEEE] transition-colors"
                   >
-                    <Activity className="w-3.5 h-3.5" /> View Logs
+                    <ChevronLeft className="w-3.5 h-3.5" /> Back
                   </Button>
                   <Button
                     size="sm"
-                    className="h-8 text-xs bg-[#5E6AD2] hover:bg-[#5E6AD2]/80 text-white gap-1.5 shadow-lg shadow-[#5E6AD2]/20 border border-[#5E6AD2] transition-colors"
+                    variant="secondary"
+                    className="h-8 text-xs gap-1.5 bg-[#1F2026] hover:bg-[#2A2A2A] border-[#2A2A2A] text-[#EEEEEE] transition-colors"
                   >
-                    <Play className="w-3.5 h-3.5" /> Run Again
+                    <Square className="w-3 h-3" /> Stop
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 text-xs gap-1.5 bg-[#1F2026] hover:bg-[#2A2A2A] border-[#2A2A2A] text-[#EEEEEE] transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               </div>
@@ -200,28 +195,46 @@ export function HeroSection() {
               {/* Test Results Content */}
               <div className="flex-1 overflow-hidden p-6 space-y-6">
                 {/* Test Summary Cards */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
-                    <div className="text-[#8A8F98] text-xs mb-1">
-                      Total Test Cases
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-[#14151A] rounded-lg p-3 border border-[#2A2A2A]">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[#8A8F98] text-xs">Total Agents</div>
+                      <div className="w-6 h-6 rounded-md bg-slate-700/50 flex items-center justify-center">
+                        <Bot className="w-3 h-3 text-[#8A8F98]" />
+                      </div>
                     </div>
-                    <div className="text-2xl font-semibold text-[#EEEEEE]">
-                      24
-                    </div>
+                    <div className="text-xl font-semibold text-[#EEEEEE]">8</div>
+                    <div className="text-[10px] text-[#555]">Connected voice agents</div>
                   </div>
-                  <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
-                    <div className="text-[#8A8F98] text-xs mb-1">Pass Rate</div>
-                    <div className="text-2xl font-semibold text-green-400">
-                      95.8%
+                  <div className="bg-[#14151A] rounded-lg p-3 border border-[#2A2A2A]">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[#8A8F98] text-xs">Test Cases</div>
+                      <div className="w-6 h-6 rounded-md bg-slate-600/50 flex items-center justify-center">
+                        <Target className="w-3 h-3 text-[#8A8F98]" />
+                      </div>
                     </div>
+                    <div className="text-xl font-semibold text-[#EEEEEE]">142</div>
+                    <div className="text-[10px] text-[#555]">Total test scenarios</div>
                   </div>
-                  <div className="bg-[#14151A] rounded-lg p-4 border border-[#2A2A2A]">
-                    <div className="text-[#8A8F98] text-xs mb-1">
-                      Avg Response Time
+                  <div className="bg-[#14151A] rounded-lg p-3 border border-[#2A2A2A]">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[#8A8F98] text-xs">Test Runs</div>
+                      <div className="w-6 h-6 rounded-md bg-indigo-600/30 flex items-center justify-center">
+                        <BarChart3 className="w-3 h-3 text-indigo-400" />
+                      </div>
                     </div>
-                    <div className="text-2xl font-semibold text-[#EEEEEE]">
-                      1.2s
+                    <div className="text-xl font-semibold text-[#EEEEEE]">37</div>
+                    <div className="text-[10px] text-[#555]">Completed test runs</div>
+                  </div>
+                  <div className="bg-[#14151A] rounded-lg p-3 border border-[#2A2A2A]">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[#8A8F98] text-xs">Pass Rate</div>
+                      <div className="w-6 h-6 rounded-md bg-green-600/20 flex items-center justify-center">
+                        <TrendingUp className="w-3 h-3 text-green-400" />
+                      </div>
                     </div>
+                    <div className="text-xl font-semibold text-green-400">95.8%</div>
+                    <div className="text-[10px] text-[#555]">Overall success rate</div>
                   </div>
                 </div>
 
@@ -244,7 +257,7 @@ export function HeroSection() {
                       </div>
                       <div className="flex-1">
                         <div className="text-xs text-[#555] mb-1">
-                          User (Simulated)
+                          TEST CALLER
                         </div>
                         <div className="bg-[#1F2026] rounded-lg p-3 text-sm text-[#EEEEEE]">
                           Hi, I need help with my recent order. It hasn&apos;t
@@ -259,7 +272,7 @@ export function HeroSection() {
                       </div>
                       <div className="flex-1">
                         <div className="text-xs text-[#555] mb-1">
-                          Voice Agent
+                          AI AGENT
                         </div>
                         <div className="bg-[#5E6AD2]/10 border border-[#5E6AD2]/20 rounded-lg p-3 text-sm text-[#EEEEEE]">
                           I&apos;d be happy to help you track your order! Could
@@ -285,27 +298,36 @@ export function HeroSection() {
                   </div>
                 </div>
 
-                {/* AI Analysis */}
+                {/* Prompt Analysis */}
                 <motion.div
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 2.5, duration: 0.5 }}
-                  className="absolute bottom-6 right-6 max-w-sm bg-[#1E1F26] border border-[#333] rounded-lg shadow-2xl shadow-black/50 p-4 z-20"
+                  className="absolute bottom-6 right-6 max-w-xs bg-[#1E1F26] border border-[#333] rounded-lg shadow-2xl shadow-black/50 p-4 z-20"
                 >
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-3.5 h-3.5 text-[#5E6AD2]" />
                       <span className="text-xs font-semibold text-[#EEEEEE]">
-                        AI Analysis
+                        Prompt Analysis
                       </span>
                     </div>
-                    <span className="text-[10px] text-[#555]">VoiceQA</span>
+                    <span className="text-[10px] text-[#555]">STABLR</span>
                   </div>
-                  <p className="text-[11px] text-[#8A8F98] leading-relaxed">
-                    <CheckCircle2 className="w-3 h-3 inline text-green-400 mr-1" />
-                    Agent responded appropriately and followed the expected
-                    conversation flow. Tone was professional and helpful.
-                  </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+                      <span className="text-[11px] text-[#8A8F98]">System prompt compliance: 98%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+                      <span className="text-[11px] text-[#8A8F98]">Intent detection: Accurate</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+                      <span className="text-[11px] text-[#8A8F98]">No hallucinations detected</span>
+                    </div>
+                  </div>
                 </motion.div>
               </div>
             </div>
