@@ -154,7 +154,7 @@ export function Footer() {
 
         {/* Copyright */}
         <div className="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-[#2A2A2A] text-xs text-[#555]">
-          <div>&copy; {currentYear} VoiceQA. All rights reserved.</div>
+          <div>&copy; {currentYear} STABLR. All rights reserved.</div>
           <div className="flex gap-6 mt-4 md:mt-0">
             <Link href="#" className="hover:text-[#8A8F98] transition-colors">
               Terms of Service

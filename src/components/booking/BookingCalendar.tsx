@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ChevronLeft, 
@@ -13,8 +13,13 @@ import {
   Mail,
   MessageSquare,
   ArrowLeft,
-  Check
+  Check,
+  AlertCircle,
+  ExternalLink,
+  Loader2,
+  Building2
 } from "lucide-react";
+import { api } from "@/lib/api";
 
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const MONTHS = [
@@ -22,18 +27,11 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December"
 ];
 
-// Generate time slots for 24x7 availability (1 hour intervals)
-const generateTimeSlots = () => {
-  const slots = [];
-  for (let hour = 0; hour < 24; hour++) {
-    const period = hour >= 12 ? "PM" : "AM";
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    slots.push(`${displayHour.toString().padStart(2, "0")}:00 ${period}`);
-  }
-  return slots;
-};
-
-const TIME_SLOTS = generateTimeSlots();
+interface TimeSlot {
+  time: string;
+  display: string;
+  available: boolean;
+}
 
 interface BookingFormData {
   name: string;
@@ -42,10 +40,27 @@ interface BookingFormData {
   message: string;
 }
 
+interface BookingResult {
+  booking: {
+    id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    duration: number;
+    status: string;
+    google_meet_link: string | null;
+    email_sent: boolean;
+  };
+  meetLink: string | null;
+  emailSent: boolean;
+  message: string;
+}
+
 export function BookingCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [selectedTimeDisplay, setSelectedTimeDisplay] = useState<string | null>(null);
   const [step, setStep] = useState<"calendar" | "form" | "confirmed">("calendar");
   const [is24Hour, setIs24Hour] = useState(false);
   const [formData, setFormData] = useState<BookingFormData>({
@@ -55,6 +70,12 @@ export function BookingCalendar() {
     message: ""
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // API-driven state
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [bookingResult, setBookingResult] = useState<BookingResult | null>(null);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -67,24 +88,54 @@ export function BookingCalendar() {
     const firstDay = new Date(currentYear, currentMonth, 1);
     const lastDay = new Date(currentYear, currentMonth + 1, 0);
     
-    // Get the day of week for first day (0 = Sunday, adjust for Monday start)
     let startDayOfWeek = firstDay.getDay() - 1;
     if (startDayOfWeek < 0) startDayOfWeek = 6;
     
     const days: (Date | null)[] = [];
     
-    // Add empty slots for days before the first of the month
     for (let i = 0; i < startDayOfWeek; i++) {
       days.push(null);
     }
     
-    // Add all days of the month
     for (let day = 1; day <= lastDay.getDate(); day++) {
       days.push(new Date(currentYear, currentMonth, day));
     }
     
     return days;
   }, [currentMonth, currentYear]);
+
+  // Fetch available time slots when a date is selected
+  const fetchAvailableSlots = useCallback(async (date: Date) => {
+    setLoadingSlots(true);
+    setError(null);
+    setTimeSlots([]);
+    setSelectedTime(null);
+    setSelectedTimeDisplay(null);
+
+    try {
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const response = await fetch(api.endpoints.booking.availability(dateStr));
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch availability');
+      }
+
+      const data = await response.json();
+      setTimeSlots(data.slots || []);
+    } catch (err: unknown) {
+      console.error('Failed to fetch slots:', err);
+      setError('Failed to load available times. Please try again.');
+    } finally {
+      setLoadingSlots(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedDate) {
+      fetchAvailableSlots(selectedDate);
+    }
+  }, [selectedDate, fetchAvailableSlots]);
 
   const isDateSelectable = (date: Date | null) => {
     if (!date) return false;
@@ -113,37 +164,65 @@ export function BookingCalendar() {
     return `${dayName} ${selectedDate.getDate().toString().padStart(2, "0")}`;
   };
 
-  const convertTo24Hour = (time12: string) => {
-    const [time, period] = time12.split(" ");
-    let [hours] = time.split(":").map(Number);
-    if (period === "PM" && hours !== 12) hours += 12;
-    if (period === "AM" && hours === 12) hours = 0;
-    return `${hours.toString().padStart(2, "0")}:00`;
-  };
-
-  const handleTimeSelect = (time: string) => {
-    setSelectedTime(time);
+  const handleTimeSelect = (slot: TimeSlot) => {
+    if (!slot.available) return;
+    setSelectedTime(slot.time);
+    setSelectedTimeDisplay(slot.display);
   };
 
   const handleContinue = () => {
     if (selectedDate && selectedTime) {
       setStep("form");
+      setError(null);
     }
   };
 
   const handleBack = () => {
     setStep("calendar");
+    setError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setIsSubmitting(false);
-    setStep("confirmed");
+    setError(null);
+
+    try {
+      if (!selectedDate || !selectedTime) {
+        throw new Error('Please select a date and time');
+      }
+
+      const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+
+      const response = await fetch(api.endpoints.booking.create, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          company: formData.company || undefined,
+          message: formData.message || undefined,
+          date: dateStr,
+          time: selectedTime,
+          timezone: 'Asia/Kolkata',
+          duration: 60,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create booking');
+      }
+
+      setBookingResult(data);
+      setStep("confirmed");
+    } catch (err: unknown) {
+      console.error('Booking failed:', err);
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -184,11 +263,52 @@ export function BookingCalendar() {
                     year: "numeric"
                   })}
                 </span>{" "}
-                at <span className="text-[#EEEEEE]">{selectedTime}</span>
+                at <span className="text-[#EEEEEE]">{selectedTimeDisplay || selectedTime}</span>
               </p>
-              <p className="text-[#8A8F98] text-sm">
-                A confirmation email has been sent to <span className="text-[#5E6AD2]">{formData.email}</span>
-              </p>
+
+              {/* Google Meet Link */}
+              {bookingResult?.meetLink && (
+                <div className="bg-[#1A1B1E] border border-[#5E6AD2]/30 rounded-xl p-6 mb-6 max-w-md mx-auto">
+                  <div className="flex items-center justify-center gap-2 text-[#5E6AD2] mb-3">
+                    <Video className="w-5 h-5" />
+                    <span className="font-semibold">Google Meet Link</span>
+                  </div>
+                  <a
+                    href={bookingResult.meetLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-[#5E6AD2] hover:bg-[#5E6AD2]/90 text-white rounded-xl text-sm font-medium transition-all duration-200 hover:shadow-lg hover:shadow-[#5E6AD2]/20"
+                  >
+                    <Video className="w-4 h-4" />
+                    Join Meeting
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <p className="text-[#8A8F98] text-xs mt-3 break-all">
+                    {bookingResult.meetLink}
+                  </p>
+                </div>
+              )}
+
+              {/* Email confirmation */}
+              <div className="flex items-center justify-center gap-2 text-[#8A8F98] text-sm">
+                {bookingResult?.emailSent ? (
+                  <>
+                    <Check className="w-4 h-4 text-green-500" />
+                    <span>Confirmation email sent to <span className="text-[#5E6AD2]">{formData.email}</span></span>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-4 h-4" />
+                    <span>A confirmation email will be sent to <span className="text-[#5E6AD2]">{formData.email}</span></span>
+                  </>
+                )}
+              </div>
+
+              {bookingResult?.booking?.id && (
+                <p className="text-[#5A5A5A] text-xs mt-4">
+                  Booking ID: {bookingResult.booking.id}
+                </p>
+              )}
             </motion.div>
           ) : (
             <motion.div
@@ -210,7 +330,7 @@ export function BookingCalendar() {
                   </button>
                 )}
                 
-                <h3 className="text-xl font-bold text-[#EEEEEE] mb-2">VoiceQA Demo</h3>
+                <h3 className="text-xl font-bold text-[#EEEEEE] mb-2">STABLR Demo</h3>
                 
                 <div className="flex items-center gap-2 text-[#8A8F98] mb-6">
                   <Clock className="w-4 h-4" />
@@ -236,7 +356,7 @@ export function BookingCalendar() {
                           weekday: "short",
                           month: "short", 
                           day: "numeric" 
-                        })}, {selectedTime}
+                        })}, {selectedTimeDisplay || selectedTime}
                       </span>
                     </div>
                   )}
@@ -244,7 +364,7 @@ export function BookingCalendar() {
 
                 <div className="mt-8 pt-6 border-t border-[#2A2A2A]">
                   <p className="text-sm text-[#8A8F98] leading-relaxed">
-                    Book a personalized demo to see how VoiceQA can help you automate testing for your AI voice agents.
+                    Book a personalized demo to see how STABLR can help you automate testing for your AI voice agents.
                   </p>
                 </div>
               </div>
@@ -317,7 +437,7 @@ export function BookingCalendar() {
                     </div>
                   </div>
 
-                  {/* Right - Time Slots */}
+                  {/* Right - Time Slots (API-driven) */}
                   <div className="lg:w-64 p-6 lg:p-8">
                     <div className="flex items-center justify-between mb-6">
                       <h4 className="text-lg font-semibold text-[#EEEEEE]">
@@ -344,29 +464,59 @@ export function BookingCalendar() {
                     </div>
 
                     {selectedDate ? (
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        {TIME_SLOTS.map(time => {
-                          const displayTime = is24Hour ? convertTo24Hour(time) : time;
-                          const isSelected = selectedTime === time;
+                      loadingSlots ? (
+                        <div className="flex flex-col items-center justify-center h-[200px] gap-3">
+                          <Loader2 className="w-6 h-6 text-[#5E6AD2] animate-spin" />
+                          <span className="text-[#8A8F98] text-sm">Loading available times...</span>
+                        </div>
+                      ) : error ? (
+                        <div className="flex flex-col items-center justify-center h-[200px] gap-3 text-center">
+                          <AlertCircle className="w-6 h-6 text-red-400" />
+                          <span className="text-red-400 text-sm">{error}</span>
+                          <button
+                            onClick={() => selectedDate && fetchAvailableSlots(selectedDate)}
+                            className="text-[#5E6AD2] text-sm hover:underline"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      ) : timeSlots.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-[200px] gap-2 text-center">
+                          <Calendar className="w-6 h-6 text-[#5A5A5A]" />
+                          <span className="text-[#8A8F98] text-sm">No available slots for this day</span>
+                          <span className="text-[#5A5A5A] text-xs">Try selecting a different date</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                          {timeSlots.map(slot => {
+                            const displayTime = is24Hour ? slot.time : slot.display;
+                            const isSelected = selectedTime === slot.time;
 
-                          return (
-                            <button
-                              key={time}
-                              onClick={() => handleTimeSelect(time)}
-                              className={`
-                                w-full py-3 px-4 rounded-xl text-sm font-medium transition-all duration-200
-                                border
-                                ${isSelected
-                                  ? "bg-[#5E6AD2] border-[#5E6AD2] text-white"
-                                  : "bg-transparent border-[#2A2A2A] text-[#EEEEEE] hover:border-[#5E6AD2] hover:bg-[#5E6AD2]/10"
-                                }
-                              `}
-                            >
-                              {displayTime}
-                            </button>
-                          );
-                        })}
-                      </div>
+                            return (
+                              <button
+                                key={slot.time}
+                                onClick={() => handleTimeSelect(slot)}
+                                disabled={!slot.available}
+                                className={`
+                                  w-full py-3 px-4 rounded-xl text-sm font-medium transition-all duration-200
+                                  border
+                                  ${isSelected
+                                    ? "bg-[#5E6AD2] border-[#5E6AD2] text-white"
+                                    : slot.available
+                                      ? "bg-transparent border-[#2A2A2A] text-[#EEEEEE] hover:border-[#5E6AD2] hover:bg-[#5E6AD2]/10"
+                                      : "bg-[#1A1B1E]/50 border-[#1A1B1E] text-[#3A3A3A] cursor-not-allowed line-through"
+                                  }
+                                `}
+                              >
+                                {displayTime}
+                                {!slot.available && (
+                                  <span className="text-xs ml-2 no-underline">(booked)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )
                     ) : (
                       <div className="flex items-center justify-center h-[200px] text-[#8A8F98] text-sm">
                         Please select a date first
@@ -391,6 +541,13 @@ export function BookingCalendar() {
                   <h4 className="text-lg font-semibold text-[#EEEEEE] mb-6">
                     Enter Your Details
                   </h4>
+
+                  {error && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      {error}
+                    </div>
+                  )}
 
                   <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
@@ -427,7 +584,7 @@ export function BookingCalendar() {
 
                     <div>
                       <label className="flex items-center gap-2 text-sm text-[#8A8F98] mb-2">
-                        <Globe className="w-4 h-4" />
+                        <Building2 className="w-4 h-4" />
                         Company
                       </label>
                       <input
@@ -462,7 +619,7 @@ export function BookingCalendar() {
                     >
                       {isSubmitting ? (
                         <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin" />
                           Scheduling...
                         </>
                       ) : (

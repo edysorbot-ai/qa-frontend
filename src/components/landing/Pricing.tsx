@@ -300,7 +300,7 @@ export function Pricing() {
         >
           All plans include API access, detailed test reports, and audio recordings.
           <br />
-          Need a custom plan? <a href="mailto:support@voiceagentqa.com" className="text-[#5E6AD2] hover:underline">Contact us</a>
+          Need a custom plan? <a href="mailto:support@stablr.ai" className="text-[#5E6AD2] hover:underline">Contact us</a>
         </motion.p>
       </Container>
     </section>

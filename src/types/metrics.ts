@@ -1,6 +1,6 @@
 // ============================================
 // COMPREHENSIVE QUALITY METRICS (13 Categories)
-// Voice Agent QA Platform - Metrics Types
+// STABLR Platform - Metrics Types
 // ============================================
 
 // 1. Conversation Quality Metrics (Core Evaluator Layer)

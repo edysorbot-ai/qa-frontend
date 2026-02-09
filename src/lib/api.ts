@@ -163,6 +163,15 @@ export const api = {
       insights: (agentId: string) => `${API_BASE_URL}/api/monitoring/insights/${agentId}`,
       deleteCall: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}`,
     },
+
+    // Booking (public - no auth)
+    booking: {
+      create: `${API_BASE_URL}/api/booking`,
+      availability: (date: string) => `${API_BASE_URL}/api/booking/availability?date=${date}`,
+      weeklyAvailability: `${API_BASE_URL}/api/booking/weekly-availability`,
+      get: (id: string) => `${API_BASE_URL}/api/booking/${id}`,
+      cancel: (id: string) => `${API_BASE_URL}/api/booking/${id}/cancel`,
+    },
   },
   
   // WebSocket URL for real-time updates

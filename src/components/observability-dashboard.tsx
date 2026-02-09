@@ -96,25 +96,15 @@ const TIME_RANGES = [
   { value: '90d', label: 'Last 90 Days' },
 ];
 
-const MOCK_TRENDS: TrendDataPoint[] = [
-  { date: '2024-01-29', score: 82, calls: 45, successRate: 88, avgDuration: 125 },
-  { date: '2024-01-30', score: 85, calls: 52, successRate: 90, avgDuration: 118 },
-  { date: '2024-01-31', score: 79, calls: 38, successRate: 85, avgDuration: 132 },
-  { date: '2024-02-01', score: 88, calls: 61, successRate: 92, avgDuration: 115 },
-  { date: '2024-02-02', score: 86, calls: 55, successRate: 91, avgDuration: 120 },
-  { date: '2024-02-03', score: 90, calls: 48, successRate: 94, avgDuration: 108 },
-  { date: '2024-02-04', score: 87, calls: 63, successRate: 89, avgDuration: 122 },
-];
-
 export function ObservabilityDashboard() {
   const { getToken } = useAuth();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [timeRange, setTimeRange] = useState('7d');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [trends, setTrends] = useState<TrendDataPoint[]>(MOCK_TRENDS);
+  const [trends, setTrends] = useState<TrendDataPoint[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [agentPerformance, setAgentPerformance] = useState<PerformanceByAgent[]>([]);
   const [issueBreakdown, setIssueBreakdown] = useState<IssueBreakdown[]>([]);
@@ -141,94 +131,48 @@ export function ObservabilityDashboard() {
   // Fetch observability data
   const fetchObservabilityData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const token = await getToken();
+      const baseParams = `agentId=${selectedAgentId}&timeRange=${timeRange}`;
+      const headers = { Authorization: `Bearer ${token}` };
       
-      // Fetch overview metrics
-      const metricsRes = await fetch(
-        `${api.baseUrl}/api/observability/metrics?agentId=${selectedAgentId}&timeRange=${timeRange}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
+      // Fetch all endpoints in parallel
+      const [metricsRes, trendsRes, alertsRes, performanceRes, issuesRes] = await Promise.all([
+        fetch(`${api.baseUrl}/api/observability/metrics?${baseParams}`, { headers }),
+        fetch(`${api.baseUrl}/api/observability/trends?${baseParams}`, { headers }),
+        fetch(`${api.baseUrl}/api/observability/alerts?${baseParams}&limit=10`, { headers }),
+        fetch(`${api.baseUrl}/api/observability/agents/performance?${baseParams}`, { headers }),
+        fetch(`${api.baseUrl}/api/observability/issues/breakdown?${baseParams}`, { headers }),
+      ]);
+
       if (metricsRes.ok) {
-        const data = await metricsRes.json();
-        setMetrics(data);
-      } else {
-        // Set mock data for demo
-        setMetrics({
-          totalCalls: 362,
-          totalCallsChange: 12.5,
-          avgScore: 87,
-          avgScoreChange: 3.2,
-          successRate: 91,
-          successRateChange: -1.5,
-          avgDuration: 118,
-          avgDurationChange: -5.3,
-          issuesFound: 23,
-          issuesChange: -15,
-          alertsTriggered: 5,
-        });
+        setMetrics(await metricsRes.json());
       }
 
-      // Fetch alerts
-      const alertsRes = await fetch(
-        `${api.baseUrl}/api/observability/alerts?agentId=${selectedAgentId}&limit=10`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
+      if (trendsRes.ok) {
+        const data = await trendsRes.json();
+        setTrends(data.trends || []);
+      }
+
       if (alertsRes.ok) {
         const data = await alertsRes.json();
         setAlerts(data.alerts || []);
-      } else {
-        // Mock alerts
-        setAlerts([
-          {
-            id: '1',
-            type: 'error',
-            title: 'High Error Rate Detected',
-            description: 'Agent failing 20% of calls in last hour',
-            agentName: 'Sales Bot',
-            timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-            acknowledged: false,
-          },
-          {
-            id: '2',
-            type: 'warning',
-            title: 'Latency Spike',
-            description: 'Response time increased by 45% compared to baseline',
-            agentName: 'Support Agent',
-            timestamp: new Date(Date.now() - 2 * 3600000).toISOString(),
-            acknowledged: false,
-          },
-          {
-            id: '3',
-            type: 'info',
-            title: 'Performance Improvement',
-            description: 'Agent score improved by 8% over last week',
-            agentName: 'Booking Agent',
-            timestamp: new Date(Date.now() - 5 * 3600000).toISOString(),
-            acknowledged: true,
-          },
-        ]);
       }
 
-      // Fetch agent performance
-      setAgentPerformance([
-        { agentId: '1', agentName: 'Sales Bot', totalCalls: 145, avgScore: 89, successRate: 93, trend: 'up' },
-        { agentId: '2', agentName: 'Support Agent', totalCalls: 98, avgScore: 85, successRate: 88, trend: 'stable' },
-        { agentId: '3', agentName: 'Booking Agent', totalCalls: 119, avgScore: 91, successRate: 95, trend: 'up' },
-      ]);
+      if (performanceRes.ok) {
+        const data = await performanceRes.json();
+        setAgentPerformance(data.performance || []);
+      }
 
-      // Fetch issue breakdown
-      setIssueBreakdown([
-        { type: 'Hallucination', count: 8, percentage: 35, severity: 'critical' },
-        { type: 'Script Deviation', count: 6, percentage: 26, severity: 'high' },
-        { type: 'Slow Response', count: 5, percentage: 22, severity: 'medium' },
-        { type: 'Audio Quality', count: 4, percentage: 17, severity: 'low' },
-      ]);
+      if (issuesRes.ok) {
+        const data = await issuesRes.json();
+        setIssueBreakdown(data.breakdown || []);
+      }
 
-    } catch (error) {
-      console.error('Error fetching observability data:', error);
+    } catch (err) {
+      console.error('Error fetching observability data:', err);
+      setError('Failed to load analytics data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -312,6 +256,21 @@ export function ObservabilityDashboard() {
     return (
       <div className="flex items-center justify-center h-96">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error && !metrics) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <XCircle className="h-12 w-12 text-red-400" />
+        <p className="text-muted-foreground text-center max-w-md">{error}</p>
+        <button
+          onClick={() => { setLoading(true); setError(null); fetchObservabilityData(); }}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          Try Again
+        </button>
       </div>
     );
   }

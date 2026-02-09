@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Voice Agent QA Platform",
+  title: "STABLR Platform",
   description: "Automated testing platform for voice agents",
 };
 

@@ -1,5 +1,6 @@
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { PendingReferralHandler } from "@/components/pending-referral-handler";
+import { LowCreditWarning } from "@/components/low-credit-warning";
 
 export default function DashboardLayout({
   children,
@@ -9,7 +10,10 @@ export default function DashboardLayout({
   return (
     <>
       <PendingReferralHandler />
-      <AppSidebar>{children}</AppSidebar>
+      <AppSidebar>
+        <LowCreditWarning />
+        {children}
+      </AppSidebar>
     </>
   );
 }

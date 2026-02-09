@@ -56,9 +56,11 @@ export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardStats = useCallback(async () => {
     try {
+      setError(null);
       const token = await getToken();
       if (!token) {
         // Retry after a short delay if token not available yet
@@ -73,9 +75,12 @@ export default function DashboardPage() {
       if (response.ok) {
         const data = await response.json();
         setStats(data.stats);
+      } else {
+        setError("Failed to load dashboard data. Please try again.");
       }
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
+      setError("Unable to connect to the server. Please check your connection.");
     } finally {
       setIsLoading(false);
     }
@@ -142,6 +147,18 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <XCircle className="h-12 w-12 text-red-400" />
+        <p className="text-muted-foreground text-center max-w-md">{error}</p>
+        <Button variant="outline" onClick={() => { setIsLoading(true); fetchDashboardStats(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

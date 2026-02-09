@@ -12,7 +12,7 @@ export default function BookingPage() {
             Book a Demo
           </h1>
           <p className="text-lg text-[#8A8F98]">
-            Schedule a personalized demo to see how VoiceQA can help you test your AI voice agents.
+            Schedule a personalized demo to see how STABLR can help you test your AI voice agents.
           </p>
         </div>
         <BookingCalendar />

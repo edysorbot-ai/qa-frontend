@@ -118,6 +118,14 @@ interface TestResultDetail {
   intentMatch: boolean;
   outputMatch: boolean;
   
+  // Prompt Suggestions
+  promptSuggestions?: Array<{
+    issue: string;
+    suggestion: string;
+    location: string;
+    priority: "high" | "medium" | "low";
+  }>;
+  
   // Error
   errorMessage: string | null;
 }
@@ -384,55 +392,83 @@ export default function TestResultDetailPage() {
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
                   <h3 className="text-sm font-semibold text-teal-700 dark:text-teal-400 mb-3">Recommended Prompt Additions</h3>
                   <div className="space-y-3">
-                    {/* Determine prompt suggestions based on category */}
-                    {result.category === 'Off-topic Handling' && (
+                    {/* Show AI-generated prompt suggestions if available */}
+                    {result.promptSuggestions && result.promptSuggestions.length > 0 ? (
+                      result.promptSuggestions.map((suggestion, idx) => (
+                        <div key={idx} className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                              suggestion.priority === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                              suggestion.priority === 'medium' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                              'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                            }`}>
+                              {suggestion.priority || 'medium'}
+                            </span>
+                            {suggestion.issue && (
+                              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{suggestion.issue}</span>
+                            )}
+                          </div>
+                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                            &quot;{suggestion.suggestion}&quot;
+                          </p>
+                          {suggestion.location && (
+                            <p className="text-xs text-muted-foreground mt-2">Add this to: {suggestion.location}</p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
                       <>
-                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
-                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: &apos;I appreciate your question, but I&apos;m specifically designed to help with [your purpose]. Let&apos;s get you back on track with [relevant topic].&apos;&quot;
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Conversation Guidelines section</p>
-                        </div>
-                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
-                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;Never engage with off-topic requests. Always acknowledge the user&apos;s question briefly, then redirect to relevant topics within your scope.&quot;
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Boundaries section</p>
-                        </div>
-                      </>
-                    )}
-                    
-                    {result.category === 'Budget Inquiry' && (
-                      <>
-                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
-                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is &apos;$5000&apos;, maintain the dollar sign and specific amount. Don&apos;t generalize or estimate unless specifically asked to do so.&quot;
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Data Accuracy section</p>
-                        </div>
-                      </>
-                    )}
+                        {/* Fallback: category-based hardcoded suggestions */}
+                        {result.category === 'Off-topic Handling' && (
+                          <>
+                            <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                                &quot;When users ask questions unrelated to your purpose (e.g., personal matters, dating advice, non-academic topics), politely redirect them back to your core function. Say: &apos;I appreciate your question, but I&apos;m specifically designed to help with [your purpose]. Let&apos;s get you back on track with [relevant topic].&apos;&quot;
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Conversation Guidelines section</p>
+                            </div>
+                            <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                                &quot;Never engage with off-topic requests. Always acknowledge the user&apos;s question briefly, then redirect to relevant topics within your scope.&quot;
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Boundaries section</p>
+                            </div>
+                          </>
+                        )}
+                        
+                        {result.category === 'Budget Inquiry' && (
+                          <>
+                            <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                                &quot;When discussing financial information, always use the exact currency symbols and formats provided. If a budget is &apos;$5000&apos;, maintain the dollar sign and specific amount. Don&apos;t generalize or estimate unless specifically asked to do so.&quot;
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Data Accuracy section</p>
+                            </div>
+                          </>
+                        )}
 
-                    {result.category === 'User Requests Callback' && (
-                      <>
-                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
-                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: &apos;I understand you&apos;d like a callback. Let me collect your preferred contact details and time.&apos;&quot;
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Call Handling section</p>
-                        </div>
-                      </>
-                    )}
+                        {result.category === 'User Requests Callback' && (
+                          <>
+                            <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                                &quot;When a user requests a callback or wants to speak with someone else, acknowledge their request immediately and provide clear next steps. For example: &apos;I understand you&apos;d like a callback. Let me collect your preferred contact details and time.&apos;&quot;
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → Call Handling section</p>
+                            </div>
+                          </>
+                        )}
 
-                    {/* Generic fallback for other categories */}
-                    {!['Off-topic Handling', 'Budget Inquiry', 'User Requests Callback'].includes(result.category) && (
-                      <>
-                        <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
-                          <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
-                            &quot;For {result.category} scenarios: Ensure you {result.expectedResponse.toLowerCase()}. Always prioritize accuracy and completeness in your responses.&quot;
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → {result.category} section</p>
-                        </div>
+                        {/* Generic fallback for other categories */}
+                        {!['Off-topic Handling', 'Budget Inquiry', 'User Requests Callback'].includes(result.category) && (
+                          <>
+                            <div className="bg-teal-50 dark:bg-[#0A2E2F]/30 rounded p-3 border-l-4 border-teal-600">
+                              <p className="text-xs font-mono text-gray-800 dark:text-gray-200 mb-1">
+                                &quot;For {result.category} scenarios: Ensure you {result.expectedResponse.toLowerCase()}. Always prioritize accuracy and completeness in your responses.&quot;
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">Add this to: System Instructions → {result.category} section</p>
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -592,7 +628,7 @@ export default function TestResultDetailPage() {
           {/* Call Recording */}
           {result.hasRecording && result.agentAudioUrl ? (
             <ModernAudioPlayer
-              src={result.agentAudioUrl}
+              src={result.agentAudioUrl.startsWith('http') ? result.agentAudioUrl : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}${result.agentAudioUrl}`}
               conversationTurns={result.conversationTurns || []}
               onTimeUpdate={(time) => setCurrentTime(time)}
             />

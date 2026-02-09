@@ -114,7 +114,7 @@ export function HeroSection() {
               <div className="w-3 h-3 rounded-full bg-[#292929] group-hover:bg-[#27C93F] transition-colors duration-300" />
             </div>
             <div className="mx-auto text-xs font-mono text-[#555] opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-              voiceqa.app/dashboard
+              stablr.ai/dashboard
             </div>
           </div>
 
@@ -124,7 +124,7 @@ export function HeroSection() {
               <div className="p-4 border-b border-[#2A2A2A]">
                 <div className="flex items-center gap-2 text-[#EEEEEE] text-sm font-semibold">
                   <Bot className="w-4 h-4 text-[#5E6AD2]" />
-                  Voice QA
+                  STABLR
                 </div>
               </div>
 

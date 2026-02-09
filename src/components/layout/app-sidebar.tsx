@@ -36,7 +36,11 @@ import {
   Users,
   CalendarClock,
   Activity,
+  BarChart3,
+  ClipboardList,
+  Wrench,
 } from "lucide-react";
+import Link from "next/link";
 
 const menuItems = [
   {
@@ -48,6 +52,11 @@ const menuItems = [
     title: "Agents",
     icon: Users,
     href: "/dashboard/agents",
+  },
+  {
+    title: "Test Cases",
+    icon: ClipboardList,
+    href: "/dashboard/test-cases",
   },
   {
     title: "Test Runs",
@@ -63,6 +72,16 @@ const menuItems = [
     title: "Production Monitoring",
     icon: Activity,
     href: "/dashboard/monitoring",
+  },
+  {
+    title: "Analytics",
+    icon: BarChart3,
+    href: "/dashboard/analytics",
+  },
+  {
+    title: "Agent Builder",
+    icon: Wrench,
+    href: "/dashboard/agent-builder",
   },
   {
     title: "Settings",
@@ -98,7 +117,7 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Bot className="h-5 w-5" />
               </div>
-              <span className="font-semibold text-lg">Voice QA</span>
+              <span className="font-semibold text-lg">STABLR</span>
             </div>
           </SidebarHeader>
           <SidebarContent>
@@ -116,10 +135,10 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
                             : pathname.startsWith(item.href)
                         }
                       >
-                        <a href={item.href}>
+                        <Link href={item.href}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
-                        </a>
+                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
