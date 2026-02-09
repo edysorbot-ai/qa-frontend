@@ -41,6 +41,7 @@ import {
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 const menuItems = [
   {
@@ -114,10 +115,15 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
         <Sidebar>
           <SidebarHeader className="border-b border-sidebar-border">
             <div className="flex items-center gap-2 px-4 py-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Bot className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-lg">STABLR</span>
+              <Link href="/dashboard" className="flex items-center">
+                <Image
+                  src="/stablr.svg"
+                  alt="STABLR"
+                  width={120}
+                  height={32}
+                  className="h-8 w-auto"
+                />
+              </Link>
             </div>
           </SidebarHeader>
           <SidebarContent>

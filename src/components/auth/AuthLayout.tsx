@@ -181,7 +181,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
             Smarter QA for Voice and
             <br />
             Chat AI Agents
-            <span className="text-white">*</span>
+            {/* <span className="text-white">*</span> */}
           </h2>
 
           {/* Testimonial */}
@@ -192,9 +192,9 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
               confidence before production.&rdquo;
             </blockquote>
             <div>
-              <p className="text-white font-semibold">Michael Carter</p>
+              <p className="text-white font-semibold">Bhargav</p>
               <p className="text-white/60 text-sm">
-                Software Engineer at DevCore
+                Founder - Catalysts
               </p>
             </div>
           </div>
