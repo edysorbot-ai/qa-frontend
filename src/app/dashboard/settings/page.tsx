@@ -990,6 +990,7 @@ export default function SettingsPage() {
           provider,
           api_key: apiKeyToSave,
           base_url: baseUrlToSave,
+          validate: true,
         }),
       });
 
@@ -1001,7 +1002,8 @@ export default function SettingsPage() {
           isEditing: false,
           showApiKey: false,
           isLoading: false,
-          isConnected: false,
+          isConnected: data.validation?.valid ?? false,
+          error: null,
         });
       } else {
         updateProviderState(provider, {
