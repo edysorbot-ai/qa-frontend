@@ -1212,7 +1212,7 @@ export default function SettingsPage() {
                 />
                 <Input
                   type="text"
-                  placeholder="Custom domain (e.g., elevenlabs.in) — Optional"
+                  placeholder="Custom base URL (e.g., api.in.residency.elevenlabs.io) — Optional"
                   value={state.domainInput}
                   onChange={(e) =>
                     updateProviderState(providerConfig.key, { domainInput: e.target.value })
@@ -1222,7 +1222,7 @@ export default function SettingsPage() {
                 />
                 {state.domainInput.trim() && (
                   <p className="text-xs text-muted-foreground">
-                    API calls will use: api.{state.domainInput.trim().replace(/^(https?:\/\/)?(api\.)?/, '')}
+                    API calls will use: {state.domainInput.trim().replace(/^(https?:\/\/)/, '').replace(/\/v1\/?$/, '')}/v1
                   </p>
                 )}
                 <Button
