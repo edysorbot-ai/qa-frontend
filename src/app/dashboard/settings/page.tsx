@@ -75,6 +75,7 @@ interface Integration {
   id: string;
   provider: Provider;
   api_key: string;
+  base_url: string | null;
   is_active: boolean;
 }
 
@@ -92,6 +93,7 @@ interface ProviderState {
   apiKeyInput: string;
   apiSecretInput: string; // For LiveKit
   hostInput: string; // For LiveKit
+  domainInput: string; // For ElevenLabs custom domain
   showApiKey: boolean;
   isLoading: boolean;
   isValidating: boolean;
@@ -119,6 +121,7 @@ export default function SettingsPage() {
         apiKeyInput: "",
         apiSecretInput: "",
         hostInput: "",
+        domainInput: "",
         showApiKey: false,
         isLoading: false,
         isValidating: false,
@@ -944,7 +947,7 @@ export default function SettingsPage() {
   };
 
   const handleAddApiKey = (provider: Provider) => {
-    updateProviderState(provider, { isEditing: true, apiKeyInput: "", apiSecretInput: "", hostInput: "", error: null });
+    updateProviderState(provider, { isEditing: true, apiKeyInput: "", apiSecretInput: "", hostInput: "", domainInput: "", error: null });
   };
 
   const handleSaveApiKey = async (provider: Provider) => {
@@ -968,6 +971,11 @@ export default function SettingsPage() {
       return;
     }
 
+    // Build base_url for providers that support custom domains (e.g., ElevenLabs)
+    const baseUrlToSave = provider === 'elevenlabs' && state.domainInput.trim() 
+      ? state.domainInput.trim() 
+      : null;
+
     updateProviderState(provider, { isLoading: true, error: null });
 
     try {
@@ -981,6 +989,7 @@ export default function SettingsPage() {
         body: JSON.stringify({
           provider,
           api_key: apiKeyToSave,
+          base_url: baseUrlToSave,
         }),
       });
 
@@ -1070,6 +1079,7 @@ export default function SettingsPage() {
           apiKeyInput: "",
           apiSecretInput: "",
           hostInput: "",
+          domainInput: "",
           isEditing: false,
           error: null,
         });
@@ -1187,6 +1197,48 @@ export default function SettingsPage() {
                   Connect
                 </Button>
               </div>
+            ) : providerConfig.key === 'elevenlabs' ? (
+              // ElevenLabs: API key + optional custom domain
+              <div className="space-y-2">
+                <Input
+                  type="text"
+                  placeholder="Enter your API key..."
+                  value={state.apiKeyInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { apiKeyInput: e.target.value })
+                  }
+                  className="text-sm"
+                  disabled={state.isLoading}
+                />
+                <Input
+                  type="text"
+                  placeholder="Custom domain (e.g., elevenlabs.in) — Optional"
+                  value={state.domainInput}
+                  onChange={(e) =>
+                    updateProviderState(providerConfig.key, { domainInput: e.target.value })
+                  }
+                  className="text-sm"
+                  disabled={state.isLoading}
+                />
+                {state.domainInput.trim() && (
+                  <p className="text-xs text-muted-foreground">
+                    API calls will use: api.{state.domainInput.trim().replace(/^(https?:\/\/)?(api\.)?/, '')}
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => handleSaveApiKey(providerConfig.key)}
+                  disabled={state.isLoading || !state.apiKeyInput.trim()}
+                >
+                  {state.isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-2" />
+                  )}
+                  Save
+                </Button>
+              </div>
             ) : (
               // Standard single API key input
               <div className="relative">
@@ -1223,6 +1275,11 @@ export default function SettingsPage() {
                   className="pr-10 bg-teal-50 dark:bg-[#0A2E2F] font-mono text-sm"
                 />
               </div>
+              {providerConfig.key === 'elevenlabs' && state.integration?.base_url && (
+                <p className="text-xs text-muted-foreground">
+                  Domain: <span className="font-mono">{state.integration.base_url}</span>
+                </p>
+              )}
               <Button
                 variant="outline"
                 size="sm"
