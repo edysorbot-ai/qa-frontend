@@ -3261,15 +3261,15 @@ export default function AgentDetailPage() {
 
       {/* CSV Import Dialog */}
       <Dialog open={showCSVImportDialog} onOpenChange={setShowCSVImportDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Import Test Cases from CSV</DialogTitle>
             <DialogDescription>
               Upload a CSV file with your test cases. Download the template first to see the expected format.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
             {/* Step 1: Download Template */}
             <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
               <div className="flex-1">
@@ -3285,24 +3285,48 @@ export default function AgentDetailPage() {
             {/* Step 2: Upload CSV */}
             <div className="space-y-2">
               <p className="text-sm font-medium">Step 2: Upload your filled CSV</p>
-              <div
-                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => csvFileInputRef.current?.click()}
-              >
-                <input
-                  ref={csvFileInputRef}
-                  type="file"
-                  accept=".csv"
-                  className="hidden"
-                  onChange={handleCSVFileSelect}
-                />
-                <FileUp className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-                {csvFile ? (
-                  <p className="text-sm font-medium">{csvFile.name}</p>
-                ) : (
+              <input
+                ref={csvFileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleCSVFileSelect}
+              />
+              {csvFile ? (
+                <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                  <FileText className="h-5 w-5 text-primary shrink-0" />
+                  <span className="text-sm font-medium truncate flex-1">{csvFile.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => csvFileInputRef.current?.click()}
+                  >
+                    Change
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      setCsvFile(null);
+                      setCsvPreview([]);
+                      setCsvError(null);
+                      if (csvFileInputRef.current) csvFileInputRef.current.value = "";
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => csvFileInputRef.current?.click()}
+                >
+                  <FileUp className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground">Click to select a CSV file</p>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Error */}
@@ -3335,7 +3359,7 @@ export default function AgentDetailPage() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setShowCSVImportDialog(false)}>
               Cancel
             </Button>
