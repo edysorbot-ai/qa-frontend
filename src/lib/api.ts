@@ -65,6 +65,8 @@ export const api = {
       list: `${API_BASE_URL}/api/test-cases`,
       create: `${API_BASE_URL}/api/test-cases`,
       bulk: `${API_BASE_URL}/api/test-cases/bulk`,
+      csvTemplate: `${API_BASE_URL}/api/test-cases/csv-template`,
+      importCSV: `${API_BASE_URL}/api/test-cases/import-csv`,
       get: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,
       update: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,
       delete: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,

@@ -64,6 +64,9 @@ import {
   Maximize2,
   Shield,
   Activity,
+  Upload,
+  Download,
+  FileUp,
 } from "lucide-react";
 import {
   Dialog,
@@ -314,6 +317,14 @@ export default function AgentDetailPage() {
   const [generatedTestCases, setGeneratedTestCases] = useState<TestCase[]>([]);
   const [selectedGeneratedTestCases, setSelectedGeneratedTestCases] = useState<Set<string>>(new Set());
   const [isAddingSelectedTestCases, setIsAddingSelectedTestCases] = useState(false);
+
+  // CSV Import state
+  const [showCSVImportDialog, setShowCSVImportDialog] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvPreview, setCsvPreview] = useState<{ name: string; scenario: string; expected_behavior: string; category: string; priority: string }[]>([]);
+  const [isImportingCSV, setIsImportingCSV] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   // Prompt comparison state
   const [selectedPromptVersions, setSelectedPromptVersions] = useState<string[]>([]);
@@ -787,6 +798,157 @@ export default function AgentDetailPage() {
     });
     setCustomCategory("");
     setShowAddForm(false);
+  };
+
+  // CSV Import: handle file selection and preview
+  const handleCSVFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvFile(file);
+    setCsvError(null);
+    setCsvPreview([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) {
+          setCsvError("CSV file must have a header row and at least one data row.");
+          return;
+        }
+
+        // Simple CSV parse for preview (handles quoted fields)
+        const parseLine = (line: string): string[] => {
+          const fields: string[] = [];
+          let current = "";
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+              if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+              else inQuotes = !inQuotes;
+            } else if (ch === "," && !inQuotes) {
+              fields.push(current.trim());
+              current = "";
+            } else {
+              current += ch;
+            }
+          }
+          fields.push(current.trim());
+          return fields;
+        };
+
+        const headers = parseLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, "_"));
+        if (!headers.includes("name") || !headers.includes("scenario")) {
+          setCsvError('CSV must have at least "name" and "scenario" columns. Found: ' + headers.join(", "));
+          return;
+        }
+
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const vals = parseLine(lines[i]);
+          if (vals.every(v => !v)) continue;
+          const row: Record<string, string> = {};
+          headers.forEach((h, idx) => { row[h] = vals[idx] || ""; });
+          if (row.name && row.scenario) {
+            rows.push({
+              name: row.name,
+              scenario: row.scenario,
+              expected_behavior: row.expected_behavior || row.expected_outcome || "",
+              category: row.category || "Imported",
+              priority: row.priority || "medium",
+            });
+          }
+        }
+
+        if (rows.length === 0) {
+          setCsvError("No valid test cases found in CSV. Each row needs at least name and scenario.");
+          return;
+        }
+        setCsvPreview(rows);
+      } catch {
+        setCsvError("Failed to parse CSV file. Please check the format.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // CSV Import: download template
+  const handleDownloadCSVTemplate = async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.testCases.csvTemplate, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "test-cases-template.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error("Error downloading template:", error);
+    }
+  };
+
+  // CSV Import: submit
+  const handleImportCSV = async () => {
+    if (!csvFile || csvPreview.length === 0) return;
+    setIsImportingCSV(true);
+    setCsvError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const text = await csvFile.text();
+
+      const response = await fetch(api.endpoints.testCases.importCSV, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agent_id: agentId,
+          csv_content: text,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newCases = (data.testCases || []).map((tc: any) => ({
+          id: tc.id,
+          name: tc.name,
+          scenario: tc.scenario,
+          category: tc.category || "Imported",
+          expectedOutcome: tc.expected_behavior || "",
+          priority: tc.priority || "medium",
+        }));
+        setSavedTestCases([...savedTestCases, ...newCases]);
+        setShowCSVImportDialog(false);
+        setCsvFile(null);
+        setCsvPreview([]);
+        if (csvFileInputRef.current) csvFileInputRef.current.value = "";
+      } else {
+        const errorData = await response.json();
+        setCsvError(errorData.message || errorData.error || "Failed to import test cases");
+      }
+    } catch (error) {
+      console.error("Error importing CSV:", error);
+      setCsvError("Failed to import test cases");
+    } finally {
+      setIsImportingCSV(false);
+    }
   };
 
   // Delete a test case
@@ -2479,6 +2641,19 @@ export default function AgentDetailPage() {
                       )}
                       Generate More
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowCSVImportDialog(true);
+                        setCsvFile(null);
+                        setCsvPreview([]);
+                        setCsvError(null);
+                      }}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Import CSV
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -3083,6 +3258,97 @@ export default function AgentDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* CSV Import Dialog */}
+      <Dialog open={showCSVImportDialog} onOpenChange={setShowCSVImportDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Test Cases from CSV</DialogTitle>
+            <DialogDescription>
+              Upload a CSV file with your test cases. Download the template first to see the expected format.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Step 1: Download Template */}
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+              <div className="flex-1">
+                <p className="text-sm font-medium">Step 1: Download the CSV template</p>
+                <p className="text-xs text-muted-foreground">Columns: name, scenario, expected_behavior, category, priority</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleDownloadCSVTemplate}>
+                <Download className="mr-2 h-4 w-4" />
+                Template
+              </Button>
+            </div>
+
+            {/* Step 2: Upload CSV */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Step 2: Upload your filled CSV</p>
+              <div
+                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => csvFileInputRef.current?.click()}
+              >
+                <input
+                  ref={csvFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleCSVFileSelect}
+                />
+                <FileUp className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+                {csvFile ? (
+                  <p className="text-sm font-medium">{csvFile.name}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Click to select a CSV file</p>
+                )}
+              </div>
+            </div>
+
+            {/* Error */}
+            {csvError && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                {csvError}
+              </div>
+            )}
+
+            {/* Preview */}
+            {csvPreview.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Preview ({csvPreview.length} test case{csvPreview.length !== 1 ? "s" : ""})</p>
+                <ScrollArea className="h-[200px] rounded-md border">
+                  <div className="p-2 space-y-1">
+                    {csvPreview.map((row, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 rounded text-sm hover:bg-muted/50">
+                        <Badge variant="outline" className="shrink-0 text-xs">{row.category}</Badge>
+                        <span className="font-medium truncate">{row.name}</span>
+                        <span className="text-muted-foreground truncate flex-1">— {row.scenario.slice(0, 80)}{row.scenario.length > 80 ? "…" : ""}</span>
+                        <Badge variant={row.priority === "high" ? "destructive" : row.priority === "low" ? "secondary" : "default"} className="shrink-0 text-xs">
+                          {row.priority}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCSVImportDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImportCSV}
+              disabled={csvPreview.length === 0 || isImportingCSV}
+            >
+              {isImportingCSV && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Import {csvPreview.length > 0 ? `${csvPreview.length} Test Case${csvPreview.length !== 1 ? "s" : ""}` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Generated Test Cases Selection Dialog - Full Screen */}
       <Dialog open={showGeneratedTestCasesDialog} onOpenChange={setShowGeneratedTestCasesDialog}>
