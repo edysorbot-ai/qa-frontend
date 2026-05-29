@@ -1,4 +1,5 @@
 "use client";
+import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -118,6 +119,7 @@ interface TestResult {
   completedAt: string | null;
   overallScore?: number;
   hasRecording?: boolean;
+  turnsCovered?: number[]; // Turn indices where this test case was addressed
   audioUrl?: string;
   userTranscript?: string;
   agentTranscript?: string;
@@ -764,6 +766,8 @@ export default function TestRunDetailPage() {
   const [isPolling, setIsPolling] = useState(true);
   const [selectedBatch, setSelectedBatch] = useState<BatchGroup | null>(null);
   const [audioDuration, setAudioDuration] = useState<number>(0);
+  const [highlightedTurnIndex, setHighlightedTurnIndex] = useState<number | null>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<"normal" | "detailed" | "agent">(
     "normal",
   );
@@ -780,6 +784,72 @@ export default function TestRunDetailPage() {
   >([]);
   const [showPromptComparison, setShowPromptComparison] = useState(false);
   const comparisonSectionRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to a specific turn in the transcript when clicking an error
+  const scrollToTurn = (result: TestResult) => {
+    if (!selectedBatch?.conversationTurns || !transcriptRef.current) return;
+    
+    // Try turnsCovered first (from backend evaluation)
+    let targetIndex = -1;
+    if (result.turnsCovered && result.turnsCovered.length > 0) {
+      targetIndex = result.turnsCovered[0];
+    } else if (result.actualResponse) {
+      // Fallback: find the turn whose content best matches the actual response
+      const actualLower = result.actualResponse.toLowerCase().substring(0, 100);
+      for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
+        const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
+        if (turnContent.includes(actualLower.substring(0, 50)) || actualLower.includes(turnContent.substring(0, 50))) {
+          targetIndex = i;
+          break;
+        }
+      }
+      // If no match, try keyword matching from the scenario
+      if (targetIndex === -1 && result.scenario) {
+        const keywords = result.scenario.toLowerCase().split(' ').filter(w => w.length > 4).slice(0, 3);
+        for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
+          const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
+          if (keywords.some(kw => turnContent.includes(kw))) {
+            targetIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (targetIndex >= 0) {
+      setHighlightedTurnIndex(targetIndex);
+      const turnElement = transcriptRef.current.querySelector(`[data-turn-index="${targetIndex}"]`);
+      if (turnElement) {
+        turnElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      // Clear highlight after 3 seconds
+      setTimeout(() => setHighlightedTurnIndex(null), 3000);
+    }
+  };
+
+  // Mark a test result as false positive
+  const markAsFalsePositive = async (resultId: string) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/test-execution/mark-false-positive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ resultId, reason: 'Marked as false error by user' }),
+      });
+      
+      if (res.ok) {
+        toast.success('Marked as false error - future tests will account for this pattern');
+      } else {
+        toast.error('Failed to mark as false error');
+      }
+    } catch (error) {
+      console.error('Failed to mark false positive:', error);
+      toast.error('Failed to mark as false error');
+    }
+  };
 
   // Fetch test run status
   const fetchStatus = useCallback(async () => {
@@ -1130,9 +1200,11 @@ export default function TestRunDetailPage() {
                 </h2>
 
                 {selectedBatch.hasTranscript ? (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                  <div ref={transcriptRef} className="space-y-4 max-h-[600px] overflow-y-auto">
                     {selectedBatch.conversationTurns.map((turn, index) => (
-                      <div key={index} className="flex gap-3">
+                      <div key={index} data-turn-index={index} className={`flex gap-3 transition-colors duration-500 rounded-lg p-1 ${
+                        highlightedTurnIndex === index ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400' : ''
+                      }`}>
                         <div
                           className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                             turn.role === "user"
@@ -1194,7 +1266,9 @@ export default function TestRunDetailPage() {
                   {selectedBatch.results.map((result) => (
                     <div
                       key={result.id}
-                      className="border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      className="border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                      onClick={() => scrollToTurn(result)}
+                      title="Click to scroll to relevant transcript turn"
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -1289,6 +1363,21 @@ export default function TestRunDetailPage() {
                             </div>
                           </div>
                         )}
+
+                      {/* Mark as False Error button for failed tests */}
+                      {result.status === "failed" && (
+                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 gap-1"
+                            onClick={(e) => { e.stopPropagation(); markAsFalsePositive(result.id); }}
+                          >
+                            <X className="h-3 w-3" />
+                            Mark as False Error
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

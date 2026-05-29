@@ -91,6 +91,18 @@ export const api = {
       analyzeForBatching: `${API_BASE_URL}/api/test-execution/analyze-for-batching`,
       startBatched: `${API_BASE_URL}/api/test-execution/start-batched`,
       generateSmartTestCases: `${API_BASE_URL}/api/test-execution/generate-smart-test-cases`,
+      saveBatches: `${API_BASE_URL}/api/test-execution/save-batches`,
+      savedBatches: (agentId: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${agentId}`,
+      deleteSavedBatch: (id: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${id}`,
+      markFalsePositive: `${API_BASE_URL}/api/test-execution/mark-false-positive`,
+      falsePositivePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-positive-patterns/${agentId}`,
+    },
+
+    // A/B Testing
+    abTests: {
+      list: `${API_BASE_URL}/api/ab-tests`,
+      create: `${API_BASE_URL}/api/ab-tests`,
+      get: (id: string) => `${API_BASE_URL}/api/ab-tests/${id}`,
     },
 
     // Scheduled Tests

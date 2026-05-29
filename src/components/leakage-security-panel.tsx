@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
@@ -174,7 +175,7 @@ export function LeakageSecurityPanel({ agentId }: LeakageSecurityPanelProps) {
         sensitiveData = JSON.parse(newScenario.sensitiveData);
         conversationFlow = JSON.parse(newScenario.conversationFlow);
       } catch {
-        alert('Invalid JSON in sensitive data or conversation flow');
+        toast.error('Invalid JSON in sensitive data or conversation flow');
         return;
       }
 
@@ -240,11 +241,11 @@ export function LeakageSecurityPanel({ agentId }: LeakageSecurityPanelProps) {
         if (data.generatedScenarios?.length > 0) {
           await loadData();
         } else {
-          alert(data.message || 'Could not generate scenarios. Add more details to the agent prompt.');
+          toast.error(data.message || 'Could not generate scenarios. Add more details to the agent prompt.');
         }
       } else {
         const error = await res.json();
-        alert(error.error || 'Failed to generate scenarios');
+        toast.error(error.error || 'Failed to generate scenarios');
       }
     } catch (error) {
       console.error('Error generating scenarios:', error);

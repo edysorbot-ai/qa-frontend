@@ -203,6 +203,14 @@ export async function fetchWithSubscriptionCheck<T>(
   try {
     const response = await fetch(url, options);
 
+    if (response.status === 401) {
+      // Token expired or invalid — redirect to sign-in
+      if (typeof window !== 'undefined') {
+        window.location.href = '/sign-in';
+      }
+      return { success: false };
+    }
+
     if (response.status === 402) {
       const errorData: SubscriptionError = await response.json();
       if (onSubscriptionError) {

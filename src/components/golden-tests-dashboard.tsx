@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
@@ -668,11 +669,11 @@ export function MarkAsGoldenButton({ resultId, onSuccess }: MarkAsGoldenButtonPr
         onSuccess?.();
       } else {
         const errorData = await response.json();
-        alert(errorData.error || 'Failed to create golden test');
+        toast.error(errorData.error || 'Failed to create golden test');
       }
     } catch (err) {
       console.error('Failed to mark as golden:', err);
-      alert('Failed to create golden test');
+      toast.error('Failed to create golden test');
     } finally {
       setLoading(false);
     }

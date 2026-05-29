@@ -1,4 +1,5 @@
 "use client";
+import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -191,6 +192,10 @@ export default function TestCasesPage() {
   const [callBatches, setCallBatches] = useState<CallBatch[]>([]);
   const [selectedTestCases, setSelectedTestCases] = useState<Set<string>>(new Set());
   
+  // Saved batches (persistent)
+  const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: CallBatch[]; test_case_ids: string[]; created_at: string }>>([]);
+  const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
+  
   // Active tab (topic filter)
   const [activeTab, setActiveTab] = useState<string>("all");
 
@@ -234,6 +239,26 @@ export default function TestCasesPage() {
     }
   }, [getToken, selectedAgentId]);
 
+  // Fetch saved batches for the agent
+  const fetchSavedBatches = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.testExecution.savedBatches(selectedAgentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && data.savedBatches) {
+        setSavedBatches(data.savedBatches.map((sb: any) => ({
+          ...sb,
+          batch_data: typeof sb.batch_data === 'string' ? JSON.parse(sb.batch_data) : sb.batch_data,
+        })));
+      }
+    } catch (error) {
+      console.error("Failed to fetch saved batches:", error);
+    }
+  }, [getToken, selectedAgentId]);
+
   // Fetch agents on mount
   useEffect(() => {
     fetchAgents();
@@ -242,7 +267,8 @@ export default function TestCasesPage() {
   // Fetch test cases when agent changes
   useEffect(() => {
     fetchTestCases();
-  }, [fetchTestCases]);
+    fetchSavedBatches();
+  }, [fetchTestCases, fetchSavedBatches]);
 
   const generateSmartTestCases = async () => {
     if (!selectedAgentId) return;
@@ -308,7 +334,7 @@ export default function TestCasesPage() {
   };
   const analyzeForBatching = async () => {
     if (selectedTestCases.size === 0) {
-      alert("Please select test cases to batch");
+      toast.error("Please select test cases to batch");
       return;
     }
     
@@ -316,6 +342,7 @@ export default function TestCasesPage() {
     try {
       const token = await getToken();
       const selectedTCs = testCases.filter(tc => selectedTestCases.has(tc.id));
+      const selectedAgent = agents.find(a => a.id === selectedAgentId);
       
       const res = await fetch(api.endpoints.testExecution.analyzeForBatching, {
         method: "POST",
@@ -325,6 +352,8 @@ export default function TestCasesPage() {
         },
         body: JSON.stringify({
           testCases: selectedTCs,
+          agentPrompt: selectedAgent?.system_prompt || "",
+          agentFirstMessage: selectedAgent?.first_message || "",
         }),
       });
       
@@ -336,6 +365,8 @@ export default function TestCasesPage() {
           testCaseIds: string[];
           reasoning: string;
           estimatedDuration?: string;
+          testMode?: 'voice' | 'chat';
+          testModeReason?: string;
         }
         const batchesWithTestCases: CallBatch[] = data.batches.map((batch: BatchData, idx: number) => ({
           batchId: idx + 1,
@@ -343,15 +374,108 @@ export default function TestCasesPage() {
           testCases: batch.testCaseIds.map((id: string) => testCases.find(tc => tc.id === id)).filter(Boolean) as TestCase[],
           reasoning: batch.reasoning,
           estimatedDuration: batch.estimatedDuration || "2-3 minutes",
+          testMode: batch.testMode,
+          testModeReason: batch.testModeReason,
         }));
         
         setCallBatches(batchesWithTestCases);
+        
+        // Save batches persistently
+        await fetch(api.endpoints.testExecution.saveBatches, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            agentId: selectedAgentId,
+            name: `Batch Plan - ${new Date().toLocaleDateString()}`,
+            batches: batchesWithTestCases,
+            testCaseIds: Array.from(selectedTestCases),
+          }),
+        });
+        
+        // Refresh saved batches
+        await fetchSavedBatches();
+        toast.success("Batches created and saved successfully!");
         setShowBatchDialog(true);
       }
     } catch (error) {
       console.error("Failed to analyze batches:", error);
+      toast.error("Failed to create batches");
     } finally {
       setAnalyzingBatches(false);
+    }
+  };
+
+  // Run a saved batch directly
+  const runSavedBatch = async (savedBatch: typeof savedBatches[0]) => {
+    try {
+      const token = await getToken();
+      const selectedAgent = agents.find(a => a.id === selectedAgentId);
+      
+      if (!selectedAgent) {
+        toast.error("No agent selected");
+        return;
+      }
+      
+      // Create test run and start execution
+      const runRes = await fetch(api.endpoints.testRuns.create, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: `${savedBatch.name} - ${new Date().toLocaleString()}`,
+          agent_id: selectedAgentId,
+          test_case_ids: savedBatch.test_case_ids,
+        }),
+      });
+      
+      const testRun = await runRes.json();
+      
+      const res = await fetch(api.endpoints.testExecution.startBatched, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testRunId: testRun.id,
+          callBatches: savedBatch.batch_data.map((b: any) => ({
+            testCaseIds: b.testCaseIds,
+            reasoning: b.reasoning,
+            testMode: b.testMode,
+          })),
+        }),
+      });
+      
+      if (res.ok) {
+        toast.success("Test run started!");
+        window.location.href = `/dashboard/test-runs/${testRun.id}`;
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to start test run");
+      }
+    } catch (error) {
+      console.error("Failed to run saved batch:", error);
+      toast.error("Failed to start test run");
+    }
+  };
+
+  // Delete a saved batch
+  const deleteSavedBatch = async (batchId: string) => {
+    try {
+      const token = await getToken();
+      await fetch(api.endpoints.testExecution.deleteSavedBatch(batchId), {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchSavedBatches();
+      toast.success("Batch deleted");
+    } catch (error) {
+      console.error("Failed to delete batch:", error);
     }
   };
 
@@ -403,7 +527,9 @@ export default function TestCasesPage() {
   };
 
   const createTestCase = async () => {
-    if (!selectedAgentId || !newTestCase.name || !newTestCase.scenario) return;
+    if (!selectedAgentId) { toast.error('Please select an agent first'); return; }
+    if (!newTestCase.name) { toast.error('Test case name is required'); return; }
+    if (!newTestCase.scenario) { toast.error('Scenario is required'); return; }
     
     try {
       const token = await getToken();
@@ -421,6 +547,7 @@ export default function TestCasesPage() {
       });
       
       if (res.ok) {
+        toast.success('Test case created successfully');
         await fetchTestCases();
         setShowAddDialog(false);
         setNewTestCase({
@@ -436,24 +563,33 @@ export default function TestCasesPage() {
           security_test_type: "",
           sensitive_data_types: [],
         });
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || 'Failed to create test case');
       }
     } catch (error) {
-      console.error("Failed to create test case:", error);
+      toast.error('Failed to create test case');
     }
   };
 
   const deleteTestCase = async (id: string) => {
     if (!confirm("Are you sure you want to delete this test case?")) return;
     
+    
     try {
       const token = await getToken();
-      await fetch(api.endpoints.testCases.delete(id), {
+      const res = await fetch(api.endpoints.testCases.delete(id), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      await fetchTestCases();
+      if (res.ok) {
+        toast.success('Test case deleted');
+        await fetchTestCases();
+      } else {
+        toast.error('Failed to delete test case');
+      }
     } catch (error) {
-      console.error("Failed to delete test case:", error);
+      toast.error('Failed to delete test case');
     }
   };
 
@@ -640,7 +776,7 @@ export default function TestCasesPage() {
                 Add Manual
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100%-2rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add Test Case</DialogTitle>
                 <DialogDescription>
@@ -891,6 +1027,80 @@ export default function TestCasesPage() {
         </div>
       </div>
 
+      {/* Saved Batches - Horizontal Tabs */}
+      {savedBatches.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Saved Batch Plans
+              </CardTitle>
+              <Badge variant="secondary">{savedBatches.length} saved</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {savedBatches.map((sb) => (
+                <div
+                  key={sb.id}
+                  className={`flex-shrink-0 border rounded-lg p-3 cursor-pointer transition-colors min-w-[200px] ${
+                    activeSavedBatchId === sb.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+                  }`}
+                  onClick={() => setActiveSavedBatchId(activeSavedBatchId === sb.id ? null : sb.id)}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium truncate">{sb.name}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
+                      className="text-muted-foreground hover:text-destructive ml-2"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{sb.batch_data.length} calls</span>
+                    <span>•</span>
+                    <span>{sb.test_case_ids.length} tests</span>
+                  </div>
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      className="w-full gap-1 h-7 text-xs"
+                      onClick={(e) => { e.stopPropagation(); runSavedBatch(sb); }}
+                    >
+                      <Play className="h-3 w-3" />
+                      Run Tests
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Expanded batch detail */}
+            {activeSavedBatchId && (() => {
+              const activeBatch = savedBatches.find(sb => sb.id === activeSavedBatchId);
+              if (!activeBatch) return null;
+              return (
+                <div className="mt-4 border-t pt-4">
+                  <div className="grid gap-2">
+                    {activeBatch.batch_data.map((batch: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-3 p-2 bg-muted/30 rounded-md">
+                        <Badge variant="outline" className="flex-shrink-0">Call {idx + 1}</Badge>
+                        <span className="text-sm text-muted-foreground truncate flex-1">
+                          {batch.testCases?.map((tc: any) => tc.name).join(', ') || `${batch.testCaseIds?.length || 0} test cases`}
+                        </span>
+                        {batch.testMode && <Badge variant="secondary" className="text-xs">{batch.testMode}</Badge>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Test Cases Table with Topic Tabs */}
       <Card>
         <CardHeader>
@@ -1022,7 +1232,7 @@ export default function TestCasesPage() {
 
       {/* Call Batching Dialog */}
       <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh]">
+        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-4xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Layers className="h-5 w-5" />
