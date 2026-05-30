@@ -788,12 +788,13 @@ export default function TestRunDetailPage() {
   // Scroll to a specific turn in the transcript when clicking an error
   const scrollToTurn = (result: TestResult) => {
     if (!selectedBatch?.conversationTurns || !transcriptRef.current) return;
+    if (selectedBatch.conversationTurns.length === 0) return;
     
     // Try turnsCovered first (from backend evaluation)
     let targetIndex = -1;
     if (result.turnsCovered && result.turnsCovered.length > 0) {
       targetIndex = result.turnsCovered[0];
-    } else if (result.actualResponse) {
+    } else if (result.actualResponse && result.actualResponse !== 'N/A' && result.actualResponse !== 'Scenario not covered in conversation') {
       // Fallback: find the turn whose content best matches the actual response
       const actualLower = result.actualResponse.toLowerCase().substring(0, 100);
       for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
@@ -803,20 +804,33 @@ export default function TestRunDetailPage() {
           break;
         }
       }
-      // If no match, try keyword matching from the scenario
-      if (targetIndex === -1 && result.scenario) {
-        const keywords = result.scenario.toLowerCase().split(' ').filter(w => w.length > 4).slice(0, 3);
-        for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
-          const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
-          if (keywords.some(kw => turnContent.includes(kw))) {
-            targetIndex = i;
-            break;
-          }
+    }
+    
+    // If still no match, try keyword matching from the scenario
+    if (targetIndex === -1 && result.scenario) {
+      const keywords = result.scenario.toLowerCase().split(' ').filter((w: string) => w.length > 4).slice(0, 3);
+      for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
+        const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
+        if (keywords.some((kw: string) => turnContent.includes(kw))) {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    // Last resort: try matching by userInput/test case name keywords  
+    if (targetIndex === -1 && result.userInput) {
+      const keywords = result.userInput.toLowerCase().split(' ').filter((w: string) => w.length > 4).slice(0, 3);
+      for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
+        const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
+        if (keywords.some((kw: string) => turnContent.includes(kw))) {
+          targetIndex = i;
+          break;
         }
       }
     }
     
-    if (targetIndex >= 0) {
+    if (targetIndex >= 0 && targetIndex < selectedBatch.conversationTurns.length) {
       setHighlightedTurnIndex(targetIndex);
       const turnElement = transcriptRef.current.querySelector(`[data-turn-index="${targetIndex}"]`);
       if (turnElement) {
@@ -1315,6 +1329,16 @@ export default function TestRunDetailPage() {
                               className={`whitespace-pre-wrap ${result.status === "passed" ? "text-green-600" : "text-red-600"}`}
                             >
                               {result.actualResponse}
+                            </span>
+                          </div>
+                        )}
+                        {!result.actualResponse && result.status === "failed" && (
+                          <div>
+                            <span className="text-muted-foreground">
+                              Actual:{" "}
+                            </span>
+                            <span className="text-red-600 italic">
+                              Scenario not covered in conversation
                             </span>
                           </div>
                         )}
