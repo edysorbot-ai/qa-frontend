@@ -808,7 +808,7 @@ export default function TestRunDetailPage() {
     
     // If still no match, try keyword matching from the scenario
     if (targetIndex === -1 && result.scenario) {
-      const keywords = result.scenario.toLowerCase().split(' ').filter((w: string) => w.length > 4).slice(0, 3);
+      const keywords = result.scenario.toLowerCase().split(' ').filter((w: string) => w.length > 3 && !['user', 'agent', 'test', 'case', 'uses', 'gives', 'asks', 'with', 'that', 'this', 'from', 'have', 'does'].includes(w)).slice(0, 5);
       for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
         const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
         if (keywords.some((kw: string) => turnContent.includes(kw))) {
@@ -828,6 +828,24 @@ export default function TestRunDetailPage() {
           break;
         }
       }
+    }
+
+    // Try matching expectedResponse keywords
+    if (targetIndex === -1 && result.expectedResponse) {
+      const keywords = result.expectedResponse.toLowerCase().split(' ').filter((w: string) => w.length > 4).slice(0, 5);
+      for (let i = 0; i < selectedBatch.conversationTurns.length; i++) {
+        const turnContent = selectedBatch.conversationTurns[i].content.toLowerCase();
+        const matchCount = keywords.filter((kw: string) => turnContent.includes(kw)).length;
+        if (matchCount >= 2) {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    // Final fallback for failed tests: scroll to last turn to show scenario wasn't addressed
+    if (targetIndex === -1 && result.status === 'failed') {
+      targetIndex = selectedBatch.conversationTurns.length - 1;
     }
     
     if (targetIndex >= 0 && targetIndex < selectedBatch.conversationTurns.length) {
