@@ -1048,6 +1048,17 @@ export default function TestRunDetailPage() {
     return () => clearInterval(interval);
   }, [fetchStatus, fetchResults, isPolling]);
 
+  // When polling stops (test completed), do one final fetch after a short delay
+  // to ensure all results are captured
+  useEffect(() => {
+    if (!isPolling && status?.status === 'completed') {
+      const timer = setTimeout(() => {
+        fetchResults();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isPolling, status?.status, fetchResults]);
+
   // Group results into batches
   const getBatches = useCallback((): BatchGroup[] => {
     if (!results?.results) return [];
