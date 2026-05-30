@@ -67,6 +67,7 @@ import {
   Upload,
   Download,
   FileUp,
+  Layers,
 } from "lucide-react";
 import {
   Dialog,
@@ -337,6 +338,11 @@ export default function AgentDetailPage() {
   const [isSavingVariables, setIsSavingVariables] = useState(false);
   const [showDynamicVariablesDialog, setShowDynamicVariablesDialog] = useState(false);
 
+  // Saved Batches state
+  const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: any[]; test_case_ids: string[]; created_at: string }>>([]);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+  const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
+
   // Knowledge Base state
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>([]);
   const [isLoadingKnowledgeBase, setIsLoadingKnowledgeBase] = useState(false);
@@ -471,6 +477,95 @@ export default function AgentDetailPage() {
       setIsLoadingTests(false);
     }
   }, [agentId, getToken]);
+
+  // Fetch saved batches for this agent
+  const fetchSavedBatches = useCallback(async () => {
+    try {
+      setIsLoadingBatches(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.testExecution.savedBatches(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.savedBatches) {
+          setSavedBatches(data.savedBatches.map((sb: any) => ({
+            id: sb.id,
+            name: sb.name,
+            batch_data: sb.batch_data || [],
+            test_case_ids: sb.test_case_ids || [],
+            created_at: sb.created_at,
+          })));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch saved batches:", error);
+    } finally {
+      setIsLoadingBatches(false);
+    }
+  }, [agentId, getToken]);
+
+  // Delete a saved batch
+  const deleteSavedBatch = async (batchId: string) => {
+    try {
+      const token = await getToken();
+      await fetch(api.endpoints.testExecution.deleteSavedBatch(batchId), {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchSavedBatches();
+    } catch (error) {
+      console.error("Failed to delete batch:", error);
+    }
+  };
+
+  // Run a saved batch
+  const runSavedBatch = async (savedBatch: typeof savedBatches[0]) => {
+    try {
+      const token = await getToken();
+      if (!agent) return;
+
+      const runRes = await fetch(api.endpoints.testRuns.create, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: `${savedBatch.name} - ${new Date().toLocaleString()}`,
+          agent_id: agentId,
+          test_case_ids: savedBatch.test_case_ids,
+        }),
+      });
+
+      const testRun = await runRes.json();
+
+      const res = await fetch(api.endpoints.testExecution.startBatched, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testRunId: testRun.id,
+          callBatches: savedBatch.batch_data.map((b: any) => ({
+            testCaseIds: b.testCaseIds,
+            reasoning: b.reasoning,
+            testMode: b.testMode,
+          })),
+        }),
+      });
+
+      if (res.ok) {
+        router.push(`/dashboard/test-runs/${testRun.id}`);
+      }
+    } catch (error) {
+      console.error("Failed to run saved batch:", error);
+    }
+  };
 
   // Fetch test runs for this agent
   const fetchTestRuns = useCallback(async () => {
@@ -1147,9 +1242,10 @@ export default function AgentDetailPage() {
     fetchAgent();
     fetchTestCases();
     fetchTestRuns();
+    fetchSavedBatches();
     fetchDynamicVariables();
     fetchKnowledgeBase();
-  }, [fetchAgent, fetchTestCases, fetchTestRuns, fetchDynamicVariables, fetchKnowledgeBase]);
+  }, [fetchAgent, fetchTestCases, fetchTestRuns, fetchSavedBatches, fetchDynamicVariables, fetchKnowledgeBase]);
 
   // Analyze the prompt using backend AI
   const analyzePrompt = async (prompt: string, config: Record<string, any>) => {
@@ -1890,6 +1986,10 @@ export default function AgentDetailPage() {
           <TabsTrigger value="consistency">
             <Activity className="mr-2 h-4 w-4" />
             Consistency
+          </TabsTrigger>
+          <TabsTrigger value="batches">
+            <Layers className="mr-2 h-4 w-4" />
+            Saved Batches
           </TabsTrigger>
         </TabsList>
 
@@ -3166,6 +3266,105 @@ export default function AgentDetailPage() {
         {/* Consistency Tab */}
         <TabsContent value="consistency" className="space-y-4">
           <ConsistencyTestPanel agentId={agentId} />
+        </TabsContent>
+
+        {/* Saved Batches Tab */}
+        <TabsContent value="batches" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layers className="h-5 w-5" />
+                    Saved Batch Plans
+                  </CardTitle>
+                  <CardDescription>
+                    Pre-configured test batches for quick execution without regenerating each time
+                  </CardDescription>
+                </div>
+                <Badge variant="secondary">{savedBatches.length} saved</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingBatches ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : savedBatches.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium">No saved batches yet</p>
+                  <p className="text-sm mt-1">Go to Test Cases tab, select test cases, and use &quot;Create Batches&quot; to generate optimized batch plans that you can save and reuse.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {savedBatches.map((sb) => (
+                      <div
+                        key={sb.id}
+                        className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                          activeSavedBatchId === sb.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+                        }`}
+                        onClick={() => setActiveSavedBatchId(activeSavedBatchId === sb.id ? null : sb.id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium truncate">{sb.name}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
+                            className="text-muted-foreground hover:text-destructive ml-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                          <span>{sb.batch_data.length} calls</span>
+                          <span>&bull;</span>
+                          <span>{sb.test_case_ids.length} tests</span>
+                          <span>&bull;</span>
+                          <span>{new Date(sb.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="w-full gap-1"
+                          onClick={(e) => { e.stopPropagation(); runSavedBatch(sb); }}
+                        >
+                          <Play className="h-3 w-3" />
+                          Run Batch
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Expanded batch detail */}
+                  {activeSavedBatchId && (() => {
+                    const activeBatch = savedBatches.find(sb => sb.id === activeSavedBatchId);
+                    if (!activeBatch) return null;
+                    return (
+                      <div className="mt-4 border-t pt-4">
+                        <h4 className="text-sm font-medium mb-3">Batch Details: {activeBatch.name}</h4>
+                        <div className="grid gap-2">
+                          {activeBatch.batch_data.map((batch: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-md">
+                              <Badge variant="outline" className="flex-shrink-0">Call {idx + 1}</Badge>
+                              <span className="text-sm text-muted-foreground truncate flex-1">
+                                {batch.testCases?.map((tc: any) => tc.name).join(', ') || `${batch.testCaseIds?.length || 0} test cases`}
+                              </span>
+                              {batch.testMode && <Badge variant="secondary" className="text-xs">{batch.testMode}</Badge>}
+                              {batch.reasoning && (
+                                <span className="text-xs text-muted-foreground italic hidden md:block max-w-[200px] truncate">
+                                  {batch.reasoning}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Knowledge Base Tab */}
