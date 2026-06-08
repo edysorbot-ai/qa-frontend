@@ -37,7 +37,19 @@ import {
   BarChart3,
   Timer,
 } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend,
+} from "recharts";
 import { api } from "@/lib/api";
 
 const providerColors: Record<string, string> = {
@@ -121,7 +133,7 @@ interface MonitoredAgent {
 interface TranscriptEntry {
   role: "agent" | "user";
   content: string;
-  timestamp?: number;
+  timestamp?: number | string;
 }
 
 interface LatencyMetrics {
@@ -152,9 +164,29 @@ interface ProductionCall {
   transcript: TranscriptEntry[] | null;
   recording_url: string | null;
   latency?: LatencyMetrics;
+  latency_metrics?: LatencyMetrics;
+  webhook_payload?: Record<string, unknown>;
+  provider_analysis?: Record<string, unknown>;
   interruption_count?: number;
   silence_ratio?: number;
   created_at: string;
+}
+
+interface TurnLatencyMetrics {
+  turn: number;
+  agentIndex: number;
+  responseLatencyMs: number | null;
+  sttLatencyMs: number | null;
+  llmLatencyMs: number | null;
+  ttsLatencyMs: number | null;
+}
+
+interface AggregatedLatency {
+  avgResponseMs: number | null;
+  p50ResponseMs: number | null;
+  p90ResponseMs: number | null;
+  maxResponseMs: number | null;
+  measuredTurns: number;
 }
 
 interface PollingStatus {
@@ -193,6 +225,161 @@ export default function AgentMonitoringDetailPage() {
   const [pollingInterval, setPollingInterval] = useState(30);
   const [activeTab, setActiveTab] = useState("overview");
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+
+  const toTimelineMs = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      if (value < 1000000) {
+        // Most providers send seconds-in-call for transcript turns.
+        return Math.round(value * 1000);
+      }
+      // Already milliseconds or epoch milliseconds.
+      return Math.round(value);
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+
+      const asNumber = Number(trimmed);
+      if (!Number.isNaN(asNumber)) {
+        return asNumber < 1000000 ? Math.round(asNumber * 1000) : Math.round(asNumber);
+      }
+
+      const parsedDate = Date.parse(trimmed);
+      if (!Number.isNaN(parsedDate)) return parsedDate;
+    }
+
+    return null;
+  };
+
+  const extractNumericLatency = (entry: TranscriptEntry): {
+    stt: number | null;
+    llm: number | null;
+    tts: number | null;
+  } => {
+    const unknownEntry = entry as unknown as Record<string, unknown>;
+    const rawLatency = (unknownEntry.latency || unknownEntry.metrics || {}) as Record<string, unknown>;
+
+    const pick = (...values: unknown[]): number | null => {
+      for (const value of values) {
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+        if (typeof value === "string") {
+          const parsed = Number(value);
+          if (!Number.isNaN(parsed)) return parsed;
+        }
+      }
+      return null;
+    };
+
+    return {
+      stt: pick(
+        unknownEntry.stt_latency_ms,
+        unknownEntry.sttLatencyMs,
+        rawLatency.stt,
+        (rawLatency.stt as Record<string, unknown> | undefined)?.p50,
+      ),
+      llm: pick(
+        unknownEntry.llm_latency_ms,
+        unknownEntry.llmLatencyMs,
+        rawLatency.llm,
+        (rawLatency.llm as Record<string, unknown> | undefined)?.p50,
+      ),
+      tts: pick(
+        unknownEntry.tts_latency_ms,
+        unknownEntry.ttsLatencyMs,
+        rawLatency.tts,
+        (rawLatency.tts as Record<string, unknown> | undefined)?.p50,
+      ),
+    };
+  };
+
+  const percentile = (values: number[], p: number): number | null => {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+    return Math.round(sorted[index]);
+  };
+
+  const turnLatencyMetrics = useMemo<TurnLatencyMetrics[]>(() => {
+    if (!selectedCall?.transcript || selectedCall.transcript.length === 0) return [];
+
+    let turnCounter = 0;
+    let lastUserTs: number | null = null;
+    const turns: TurnLatencyMetrics[] = [];
+
+    selectedCall.transcript.forEach((entry, index) => {
+      const ts = toTimelineMs(entry.timestamp);
+
+      if (entry.role === "user") {
+        if (ts !== null) lastUserTs = ts;
+        return;
+      }
+
+      if (entry.role !== "agent") return;
+
+      turnCounter += 1;
+      const responseLatencyMs =
+        ts !== null && lastUserTs !== null ? Math.max(0, Math.round(ts - lastUserTs)) : null;
+
+      const extracted = extractNumericLatency(entry);
+      turns.push({
+        turn: turnCounter,
+        agentIndex: index,
+        responseLatencyMs,
+        sttLatencyMs: extracted.stt,
+        llmLatencyMs: extracted.llm,
+        ttsLatencyMs: extracted.tts,
+      });
+    });
+
+    return turns;
+  }, [selectedCall]);
+
+  const aggregatedLatency = useMemo<AggregatedLatency>(() => {
+    const values = turnLatencyMetrics
+      .map((turn) => turn.responseLatencyMs)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+
+    if (values.length === 0) {
+      return {
+        avgResponseMs: null,
+        p50ResponseMs: null,
+        p90ResponseMs: null,
+        maxResponseMs: null,
+        measuredTurns: 0,
+      };
+    }
+
+    const avgResponseMs = Math.round(values.reduce((sum, current) => sum + current, 0) / values.length);
+    const maxResponseMs = Math.round(Math.max(...values));
+
+    return {
+      avgResponseMs,
+      p50ResponseMs: percentile(values, 50),
+      p90ResponseMs: percentile(values, 90),
+      maxResponseMs,
+      measuredTurns: values.length,
+    };
+  }, [turnLatencyMetrics]);
+
+  const hasComponentLatency = useMemo(
+    () => turnLatencyMetrics.some((t) => t.sttLatencyMs !== null || t.llmLatencyMs !== null || t.ttsLatencyMs !== null),
+    [turnLatencyMetrics],
+  );
+
+  const latencyChartData = useMemo(
+    () =>
+      turnLatencyMetrics.map((turn) => ({
+        turn: `Turn ${turn.turn}`,
+        response: turn.responseLatencyMs || 0,
+        stt: turn.sttLatencyMs || 0,
+        llm: turn.llmLatencyMs || 0,
+        tts: turn.ttsLatencyMs || 0,
+      })),
+    [turnLatencyMetrics],
+  );
 
   // Fetch recording URL with auth when call is selected
   useEffect(() => {
@@ -788,9 +975,11 @@ export default function AgentMonitoringDetailPage() {
                                   Avg Latency
                                 </div>
                                 <p className="text-lg font-semibold">
-                                  {selectedCall.analysis?.metrics?.avgLatency 
-                                    ? `${selectedCall.analysis.metrics.avgLatency}ms` 
-                                    : '~850ms'}
+                                  {aggregatedLatency.avgResponseMs !== null
+                                    ? `${aggregatedLatency.avgResponseMs}ms`
+                                    : selectedCall.analysis?.metrics?.avgLatency
+                                    ? `${selectedCall.analysis.metrics.avgLatency}ms`
+                                    : "-"}
                                 </p>
                               </div>
                               <div className="p-3 bg-muted/30 rounded-lg border">
@@ -813,6 +1002,43 @@ export default function AgentMonitoringDetailPage() {
                                   {selectedCall.status === 'completed' ? 'Completed' : 'In Progress'}
                                 </p>
                               </div>
+                            </div>
+
+                            {/* Latency Metrics */}
+                            <div className="p-4 bg-muted/20 rounded-lg border">
+                              <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
+                                <Zap className="h-4 w-4" />
+                                Response Latency Metrics
+                              </h4>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                <div className="p-3 bg-background rounded border">
+                                  <p className="text-muted-foreground text-xs">P50</p>
+                                  <p className="text-base font-semibold">
+                                    {aggregatedLatency.p50ResponseMs !== null ? `${aggregatedLatency.p50ResponseMs}ms` : "-"}
+                                  </p>
+                                </div>
+                                <div className="p-3 bg-background rounded border">
+                                  <p className="text-muted-foreground text-xs">P90</p>
+                                  <p className="text-base font-semibold">
+                                    {aggregatedLatency.p90ResponseMs !== null ? `${aggregatedLatency.p90ResponseMs}ms` : "-"}
+                                  </p>
+                                </div>
+                                <div className="p-3 bg-background rounded border">
+                                  <p className="text-muted-foreground text-xs">Max</p>
+                                  <p className="text-base font-semibold">
+                                    {aggregatedLatency.maxResponseMs !== null ? `${aggregatedLatency.maxResponseMs}ms` : "-"}
+                                  </p>
+                                </div>
+                                <div className="p-3 bg-background rounded border">
+                                  <p className="text-muted-foreground text-xs">Measured Turns</p>
+                                  <p className="text-base font-semibold">{aggregatedLatency.measuredTurns}</p>
+                                </div>
+                              </div>
+                              {!hasComponentLatency && (
+                                <p className="text-xs text-muted-foreground mt-3">
+                                  STT/LLM/TTS component latency is unavailable for this provider payload. Showing per-turn response latency from transcript timestamps.
+                                </p>
+                              )}
                             </div>
 
                             {/* Summary Text */}
@@ -1032,6 +1258,34 @@ export default function AgentMonitoringDetailPage() {
                         <ScrollArea className="h-[calc(100vh-420px)]">
                           {selectedCall.transcript && selectedCall.transcript.length > 0 ? (
                             <div className="space-y-3 pr-4">
+                              {turnLatencyMetrics.length > 0 && (
+                                <div className="p-4 bg-muted/20 rounded-lg border">
+                                  <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
+                                    <BarChart3 className="h-4 w-4" />
+                                    Per-Turn Latency
+                                  </h4>
+                                  <div className="h-64">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <RechartsBarChart data={latencyChartData}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="turn" />
+                                        <YAxis tickFormatter={(value) => `${value}ms`} />
+                                        <Tooltip formatter={(value: number) => `${Math.round(value)}ms`} />
+                                        <Legend />
+                                        {hasComponentLatency ? (
+                                          <>
+                                            <Bar dataKey="stt" stackId="latency" fill="#3b82f6" name="STT" radius={[3, 3, 0, 0]} />
+                                            <Bar dataKey="llm" stackId="latency" fill="#8b5cf6" name="LLM" />
+                                            <Bar dataKey="tts" stackId="latency" fill="#10b981" name="TTS" radius={[3, 3, 0, 0]} />
+                                          </>
+                                        ) : (
+                                          <Bar dataKey="response" fill="#0ea5e9" name="Response" radius={[4, 4, 0, 0]} />
+                                        )}
+                                      </RechartsBarChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                </div>
+                              )}
                               {selectedCall.transcript.map((entry, idx) => (
                                 <div
                                   key={idx}
@@ -1068,6 +1322,34 @@ export default function AgentMonitoringDetailPage() {
                                     >
                                       {entry.content}
                                     </div>
+                                    {entry.role === "agent" && (() => {
+                                      const turnLatency = turnLatencyMetrics.find((turn) => turn.agentIndex === idx);
+                                      if (!turnLatency) return null;
+                                      return (
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                          {turnLatency.responseLatencyMs !== null && (
+                                            <Badge variant="outline" className="text-[10px] font-mono">
+                                              Resp: {turnLatency.responseLatencyMs}ms
+                                            </Badge>
+                                          )}
+                                          {turnLatency.sttLatencyMs !== null && (
+                                            <Badge variant="outline" className="text-[10px] font-mono text-blue-600 border-blue-200">
+                                              STT: {Math.round(turnLatency.sttLatencyMs)}ms
+                                            </Badge>
+                                          )}
+                                          {turnLatency.llmLatencyMs !== null && (
+                                            <Badge variant="outline" className="text-[10px] font-mono text-violet-600 border-violet-200">
+                                              LLM: {Math.round(turnLatency.llmLatencyMs)}ms
+                                            </Badge>
+                                          )}
+                                          {turnLatency.ttsLatencyMs !== null && (
+                                            <Badge variant="outline" className="text-[10px] font-mono text-emerald-600 border-emerald-200">
+                                              TTS: {Math.round(turnLatency.ttsLatencyMs)}ms
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               ))}

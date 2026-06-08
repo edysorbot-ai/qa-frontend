@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,12 +39,18 @@ import Link from "next/link";
 interface TranscriptEntry {
   role: "user" | "agent" | "system";
   content: string;
-  timestamp?: string;
+  timestamp?: string | number;
   words?: Array<{
     word: string;
     start: number;
     end: number;
   }>;
+}
+
+interface TurnLatency {
+  turn: number;
+  agentIndex: number;
+  responseLatencyMs: number | null;
 }
 
 interface Issue {
@@ -131,6 +137,69 @@ export default function CallDetailPage() {
   const [copied, setCopied] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+
+  const toTimelineMs = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value < 1000000 ? Math.round(value * 1000) : Math.round(value);
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const asNumber = Number(trimmed);
+      if (!Number.isNaN(asNumber)) {
+        return asNumber < 1000000 ? Math.round(asNumber * 1000) : Math.round(asNumber);
+      }
+      const asDate = Date.parse(trimmed);
+      if (!Number.isNaN(asDate)) return asDate;
+    }
+    return null;
+  };
+
+  const turnLatencies = useMemo<TurnLatency[]>(() => {
+    if (!call?.transcript || call.transcript.length === 0) return [];
+
+    const turns: TurnLatency[] = [];
+    let turnCounter = 0;
+    let lastUserTs: number | null = null;
+
+    call.transcript.forEach((entry, index) => {
+      const ts = toTimelineMs(entry.timestamp);
+
+      if (entry.role === "user") {
+        if (ts !== null) lastUserTs = ts;
+        return;
+      }
+
+      if (entry.role !== "agent") return;
+
+      turnCounter += 1;
+      turns.push({
+        turn: turnCounter,
+        agentIndex: index,
+        responseLatencyMs:
+          ts !== null && lastUserTs !== null ? Math.max(0, Math.round(ts - lastUserTs)) : null,
+      });
+    });
+
+    return turns;
+  }, [call]);
+
+  const responseLatencyStats = useMemo(() => {
+    const values = turnLatencies
+      .map((turn) => turn.responseLatencyMs)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (values.length === 0) {
+      return { avg: null as number | null, p90: null as number | null, measured: 0 };
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const p90Index = Math.min(sorted.length - 1, Math.ceil(0.9 * sorted.length) - 1);
+    return {
+      avg: Math.round(values.reduce((sum, curr) => sum + curr, 0) / values.length),
+      p90: Math.round(sorted[p90Index]),
+      measured: values.length,
+    };
+  }, [turnLatencies]);
 
   const fetchCall = useCallback(async () => {
     try {
@@ -534,6 +603,26 @@ export default function CallDetailPage() {
               </Button>
             </CardHeader>
             <CardContent>
+              {turnLatencies.length > 0 && (
+                <div className="mb-4 grid gap-3 md:grid-cols-3">
+                  <div className="p-3 bg-muted/30 rounded-lg border">
+                    <p className="text-xs text-muted-foreground">Avg Response Latency</p>
+                    <p className="text-lg font-semibold">
+                      {responseLatencyStats.avg !== null ? `${responseLatencyStats.avg}ms` : "-"}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg border">
+                    <p className="text-xs text-muted-foreground">P90 Response Latency</p>
+                    <p className="text-lg font-semibold">
+                      {responseLatencyStats.p90 !== null ? `${responseLatencyStats.p90}ms` : "-"}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg border">
+                    <p className="text-xs text-muted-foreground">Measured Agent Turns</p>
+                    <p className="text-lg font-semibold">{responseLatencyStats.measured}</p>
+                  </div>
+                </div>
+              )}
               {call.recording_url && (
                 <div className="mb-4 p-3 bg-muted rounded-lg flex items-center gap-4">
                   <Button
@@ -597,6 +686,17 @@ export default function CallDetailPage() {
                           >
                             <p className="text-sm">{entry.content}</p>
                           </div>
+                          {entry.role === "agent" && (() => {
+                            const turnLatency = turnLatencies.find((turn) => turn.agentIndex === i);
+                            if (!turnLatency || turnLatency.responseLatencyMs === null) return null;
+                            return (
+                              <div className="mt-1">
+                                <Badge variant="outline" className="text-[10px] font-mono">
+                                  Resp: {turnLatency.responseLatencyMs}ms
+                                </Badge>
+                              </div>
+                            );
+                          })()}
                           {entry.timestamp && (
                             <p className="text-xs text-muted-foreground mt-1">
                               {entry.timestamp}
