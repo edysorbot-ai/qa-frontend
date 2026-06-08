@@ -96,6 +96,8 @@ export const api = {
       deleteSavedBatch: (id: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${id}`,
       markFalsePositive: `${API_BASE_URL}/api/test-execution/mark-false-positive`,
       falsePositivePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-positive-patterns/${agentId}`,
+      markFalseNegative: `${API_BASE_URL}/api/test-execution/mark-false-negative`,
+      falseNegativePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-negative-patterns/${agentId}`,
       reevaluateResult: `${API_BASE_URL}/api/test-execution/reevaluate-result`,
       testCaseTemplates: `${API_BASE_URL}/api/test-execution/test-case-templates`,
       generateFromTemplate: `${API_BASE_URL}/api/test-execution/test-case-templates/generate`,

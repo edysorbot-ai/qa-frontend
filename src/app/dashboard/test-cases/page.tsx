@@ -1286,7 +1286,7 @@ export default function TestCasesPage() {
                       <div className="grid gap-2">
                         <Label>Security Test Type</Label>
                         <Select
-                          value={newTestCase.security_test_type}
+                          value={newTestCase.security_test_type || undefined}
                           onValueChange={(v) => setNewTestCase({ ...newTestCase, security_test_type: v as SecurityTestType })}
                         >
                           <SelectTrigger>
@@ -1321,14 +1321,14 @@ export default function TestCasesPage() {
                 <div className="grid gap-2">
                   <Label htmlFor="topic">Key Topic (Optional)</Label>
                   <Select
-                    value={newTestCase.key_topic}
-                    onValueChange={(v) => setNewTestCase({ ...newTestCase, key_topic: v })}
+                    value={newTestCase.key_topic || undefined}
+                    onValueChange={(v) => setNewTestCase({ ...newTestCase, key_topic: v === '__none__' ? '' : v })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a topic" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No topic</SelectItem>
+                      <SelectItem value="__none__">No topic</SelectItem>
                       {getUniqueTopics().map((topic) => (
                         <SelectItem key={topic} value={topic}>
                           {topic}

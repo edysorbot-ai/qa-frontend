@@ -911,8 +911,9 @@ export default function TestRunDetailPage() {
     }
   };
 
-  // Mark a test result as false positive
-  const markAsFalsePositive = async (resultId: string) => {
+  // Mark a FAILED test result as False Negative — user disagrees with the
+  // failure verdict; the evaluator will not flag this pattern next run.
+  const markAsFalseNegative = async (resultId: string) => {
     try {
       const token = await getToken();
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/test-execution/mark-false-positive`, {
@@ -921,17 +922,42 @@ export default function TestRunDetailPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ resultId, reason: 'Marked as false error by user' }),
+        body: JSON.stringify({ resultId, reason: 'Marked as false negative by user' }),
       });
-      
+
       if (res.ok) {
-        toast.success('Marked as false error - future tests will account for this pattern');
+        toast.success('Marked as false negative — future runs will not flag similar responses as failures');
       } else {
-        toast.error('Failed to mark as false error');
+        toast.error('Failed to mark as false negative');
+      }
+    } catch (error) {
+      console.error('Failed to mark false negative:', error);
+      toast.error('Failed to mark as false negative');
+    }
+  };
+
+  // Mark a PASSED test result as False Positive — user disagrees with the
+  // pass verdict; the evaluator will flag similar responses as failures next run.
+  const markAsFalsePositive = async (resultId: string) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/test-execution/mark-false-negative`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ resultId, reason: 'Marked as false positive by user' }),
+      });
+
+      if (res.ok) {
+        toast.success('Marked as false positive — future runs will flag similar responses as failures');
+      } else {
+        toast.error('Failed to mark as false positive');
       }
     } catch (error) {
       console.error('Failed to mark false positive:', error);
-      toast.error('Failed to mark as false error');
+      toast.error('Failed to mark as false positive');
     }
   };
 
@@ -1694,17 +1720,18 @@ export default function TestRunDetailPage() {
                           </div>
                         )}
 
-                      {/* Mark as False Error button for failed tests */}
+                      {/* Mark as False Negative — failed tests the user thinks should have passed */}
                       {result.status === "failed" && (
                         <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 gap-1"
-                            onClick={(e) => { e.stopPropagation(); markAsFalsePositive(result.id); }}
+                            onClick={(e) => { e.stopPropagation(); markAsFalseNegative(result.id); }}
+                            title="This test failed but the agent's response was actually acceptable. Future runs will learn from this."
                           >
                             <X className="h-3 w-3" />
-                            Mark as False Error
+                            Mark as False Negative
                           </Button>
                           <Button
                             variant="ghost"
@@ -1721,6 +1748,31 @@ export default function TestRunDetailPage() {
                               Re-evaluated{(result as any).reevaluation_count ? ` ×${(result as any).reevaluation_count}` : ''}
                             </Badge>
                           ) : null}
+                        </div>
+                      )}
+
+                      {/* Mark as False Positive — passed tests the user thinks should have failed */}
+                      {result.status === "passed" && (
+                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 gap-1"
+                            onClick={(e) => { e.stopPropagation(); markAsFalsePositive(result.id); }}
+                            title="This test passed but the agent's response was actually wrong. Future runs will learn from this."
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Mark as False Positive
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 gap-1"
+                            onClick={(e) => { e.stopPropagation(); openReevaluateDialog(result.id); }}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            Request AI Re-evaluation
+                          </Button>
                         </div>
                       )}
                     </div>
