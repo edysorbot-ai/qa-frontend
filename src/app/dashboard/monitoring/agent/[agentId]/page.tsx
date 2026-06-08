@@ -1270,7 +1270,7 @@ export default function AgentMonitoringDetailPage() {
                                         <CartesianGrid strokeDasharray="3 3" />
                                         <XAxis dataKey="turn" />
                                         <YAxis tickFormatter={(value) => `${value}ms`} />
-                                        <Tooltip formatter={(value: number) => `${Math.round(value)}ms`} />
+                                        <Tooltip formatter={(value) => `${Math.round(Number(value) || 0)}ms`} />
                                         <Legend />
                                         {hasComponentLatency ? (
                                           <>
