@@ -70,6 +70,14 @@ export const api = {
       get: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,
       update: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,
       delete: (id: string) => `${API_BASE_URL}/api/test-cases/${id}`,
+      goldList: (id: string) => `${API_BASE_URL}/api/test-cases/${id}/gold-examples`,
+      goldGenerate: (id: string) => `${API_BASE_URL}/api/test-cases/${id}/gold-examples/generate`,
+      goldUpdate: (id: string, kind: 'acceptable' | 'unacceptable') =>
+        `${API_BASE_URL}/api/test-cases/${id}/gold-examples/${kind}`,
+      goldApprove: (id: string, kind: 'acceptable' | 'unacceptable') =>
+        `${API_BASE_URL}/api/test-cases/${id}/gold-examples/${kind}/approve`,
+      goldUnapprove: (id: string, kind: 'acceptable' | 'unacceptable') =>
+        `${API_BASE_URL}/api/test-cases/${id}/gold-examples/${kind}/unapprove`,
     },
     
     // Test Runs

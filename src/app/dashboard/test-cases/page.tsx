@@ -55,8 +55,12 @@ import {
   Volume2,
   AlertTriangle,
   LayoutTemplate,
+  Lock,
+  CheckCircle2,
+  BookOpen,
 } from "lucide-react";
 import api from "@/lib/api";
+import { GoldExamplesDialog } from "@/components/test-cases/gold-examples-dialog";
 
 // Persona and Security Types
 type PersonaType = 'neutral' | 'angry' | 'confused' | 'impatient' | 'elderly' | 'technical' | 'rambling' | 'suspicious' | 'friendly' | 'rushed';
@@ -163,6 +167,8 @@ interface TestCase {
   is_security_test?: boolean;
   security_test_type?: SecurityTestType;
   sensitive_data_types?: string[];
+  gold_gate?: 'soft' | 'strict';
+  created_via?: 'manual' | 'auto_seed' | 'ai_generated' | 'csv_import' | 'template';
   created_at: string;
 }
 
@@ -259,6 +265,11 @@ export default function TestCasesPage() {
   // Active tab (topic filter)
   const [activeTab, setActiveTab] = useState<string>("all");
 
+  // Gold-example dialog + per-test-case approval summary (id -> approvedCount, total)
+  const [goldDialogOpen, setGoldDialogOpen] = useState(false);
+  const [goldDialogTestCase, setGoldDialogTestCase] = useState<TestCase | null>(null);
+  const [goldStatusMap, setGoldStatusMap] = useState<Record<string, { approved: number; total: number }>>({});
+
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
@@ -292,6 +303,35 @@ export default function TestCasesPage() {
         if (tc.key_topic) topics.add(tc.key_topic);
       });
       // We'll populate keyTopics from the generate response
+
+      // Pull gold-example approval status for each test case in parallel.
+      // Best-effort; failures leave the row showing "no gold yet".
+      const ids: string[] = (data as TestCase[]).map((tc) => tc.id);
+      if (ids.length > 0) {
+        try {
+          const statuses = await Promise.all(
+            ids.map(async (id) => {
+              try {
+                const r = await fetch(api.endpoints.testCases.goldList(id), {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!r.ok) return [id, { approved: 0, total: 0 }] as const;
+                const j = await r.json();
+                const list = Array.isArray(j?.examples) ? j.examples : [];
+                const approved = list.filter((e: { status: string }) => e.status === 'approved').length;
+                return [id, { approved, total: list.length }] as const;
+              } catch {
+                return [id, { approved: 0, total: 0 }] as const;
+              }
+            })
+          );
+          setGoldStatusMap(Object.fromEntries(statuses));
+        } catch {
+          // ignore
+        }
+      } else {
+        setGoldStatusMap({});
+      }
     } catch (error) {
       console.error("Failed to fetch test cases:", error);
     } finally {
@@ -679,6 +719,23 @@ export default function TestCasesPage() {
         setSelectedTestCases(new Set());
         // Navigate to test run page
         window.location.href = `/dashboard/test-runs/${testRun.id}`;
+      } else {
+        const err = await res.json().catch(() => null);
+        if (err?.error === 'GOLD_GATE_BLOCKED') {
+          const names = (err.blockedTestCases || [])
+            .slice(0, 5)
+            .map((b: { name: string }) => `\u2022 ${b.name}`)
+            .join('\n');
+          const more = (err.blockedTestCases || []).length > 5
+            ? `\n\u2026 and ${err.blockedTestCases.length - 5} more`
+            : '';
+          toast.error(
+            `Gold examples required before run can start:\n${names}${more}\n\nOpen each test case (book icon) to generate + approve both examples.`,
+            { duration: 12000 },
+          );
+        } else {
+          toast.error(err?.error || 'Failed to start batched execution');
+        }
       }
     } catch (error) {
       console.error("Failed to start batched execution:", error);
@@ -1505,8 +1562,9 @@ export default function TestCasesPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Persona</TableHead>
                     <TableHead>Topic</TableHead>
+                    <TableHead>Gold</TableHead>
                     <TableHead className="hidden md:table-cell">Scenario</TableHead>
-                    <TableHead className="w-24">Actions</TableHead>
+                    <TableHead className="w-32">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1559,6 +1617,32 @@ export default function TestCasesPage() {
                             <Badge variant="secondary">{testCase.key_topic}</Badge>
                           )}
                         </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const gs = goldStatusMap[testCase.id] || { approved: 0, total: 0 };
+                            const isStrict = (testCase.gold_gate || 'soft') === 'strict';
+                            const blocked = isStrict && gs.approved < 2;
+                            if (gs.approved >= 2) {
+                              return (
+                                <Badge variant="default" className="text-xs gap-1">
+                                  <CheckCircle2 className="h-3 w-3" /> 2/2 approved
+                                </Badge>
+                              );
+                            }
+                            if (blocked) {
+                              return (
+                                <Badge variant="destructive" className="text-xs gap-1">
+                                  <Lock className="h-3 w-3" /> {gs.approved}/2 · blocked
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="text-xs gap-1">
+                                {gs.approved}/2 {isStrict ? 'strict' : 'soft'}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <p className="text-sm text-muted-foreground line-clamp-2">
                             {testCase.scenario}
@@ -1566,6 +1650,14 @@ export default function TestCasesPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Gold examples"
+                              onClick={() => { setGoldDialogTestCase(testCase); setGoldDialogOpen(true); }}
+                            >
+                              <BookOpen className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1660,6 +1752,14 @@ export default function TestCasesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GoldExamplesDialog
+        open={goldDialogOpen}
+        onOpenChange={setGoldDialogOpen}
+        testCaseId={goldDialogTestCase?.id || null}
+        testCaseName={goldDialogTestCase?.name}
+        onChanged={() => { void fetchTestCases(); }}
+      />
     </div>
   );
 }

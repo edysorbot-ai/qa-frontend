@@ -785,7 +785,20 @@ function NewTestRunContent() {
         
         const errorData = await response.json();
         console.error("Batched test error response:", response.status, errorData);
-        setError(errorData.error || `Failed to start batched test run (${response.status})`);
+        if (errorData?.error === 'GOLD_GATE_BLOCKED') {
+          const names = (errorData.blockedTestCases || [])
+            .slice(0, 5)
+            .map((b: { name: string }) => `\u2022 ${b.name}`)
+            .join('\n');
+          const more = (errorData.blockedTestCases || []).length > 5
+            ? `\n\u2026 and ${errorData.blockedTestCases.length - 5} more`
+            : '';
+          setError(
+            `Gold examples required before run can start:\n${names}${more}\nOpen each test case in Test Cases page and approve both acceptable + unacceptable examples.`,
+          );
+        } else {
+          setError(errorData.error || `Failed to start batched test run (${response.status})`);
+        }
       }
     } catch (error) {
       console.error("Error starting batched tests:", error);
