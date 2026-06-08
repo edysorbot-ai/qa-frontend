@@ -61,7 +61,23 @@ import api from "@/lib/api";
 type PersonaType = 'neutral' | 'angry' | 'confused' | 'impatient' | 'elderly' | 'technical' | 'rambling' | 'suspicious' | 'friendly' | 'rushed';
 type VoiceAccent = 'american' | 'british' | 'australian' | 'indian' | 'spanish' | 'french' | 'german' | 'chinese' | 'japanese' | 'neutral';
 type BehaviorModifier = 'interrupts_frequently' | 'long_pauses' | 'background_noise' | 'mumbles' | 'repeats_self' | 'changes_topic' | 'gives_partial_info' | 'asks_many_questions' | 'mono_syllabic' | 'emotional';
-type SecurityTestType = 'data_leakage' | 'prompt_injection' | 'jailbreak_attempt' | 'pii_handling' | 'unauthorized_access' | 'social_engineering';
+type SecurityTestType =
+  | 'data_leakage'
+  | 'prompt_injection'
+  | 'prompt_injection_l1'
+  | 'prompt_injection_l2'
+  | 'prompt_injection_l3'
+  | 'jailbreak_attempt'
+  | 'pii_handling'
+  | 'pii_exposure'
+  | 'unauthorized_access'
+  | 'social_engineering'
+  | 'toxic_content'
+  | 'harmful_advice'
+  | 'adversarial_input'
+  | 'data_exfiltration'
+  | 'medical_data_request'
+  | 'pci_data_request';
 
 const PERSONA_OPTIONS: { value: PersonaType; label: string; description: string; emoji: string }[] = [
   { value: 'neutral', label: 'Neutral', description: 'Standard professional caller', emoji: '😐' },
@@ -104,11 +120,21 @@ const BEHAVIOR_OPTIONS: { value: BehaviorModifier; label: string }[] = [
 
 const SECURITY_TEST_OPTIONS: { value: SecurityTestType; label: string; description: string }[] = [
   { value: 'data_leakage', label: 'Data Leakage', description: 'Test if agent leaks sensitive data across conversations' },
-  { value: 'prompt_injection', label: 'Prompt Injection', description: 'Test resistance to prompt injection attacks' },
-  { value: 'jailbreak_attempt', label: 'Jailbreak Attempt', description: 'Test resistance to jailbreak attempts' },
-  { value: 'pii_handling', label: 'PII Handling', description: 'Test proper handling of personal information' },
-  { value: 'unauthorized_access', label: 'Unauthorized Access', description: 'Test for unauthorized data access' },
-  { value: 'social_engineering', label: 'Social Engineering', description: 'Test resistance to social engineering' },
+  { value: 'prompt_injection', label: 'Prompt Injection (generic)', description: 'Test resistance to prompt injection attacks' },
+  { value: 'prompt_injection_l1', label: 'Prompt Injection · L1 (direct override)', description: '"Ignore previous instructions" style direct override attempts' },
+  { value: 'prompt_injection_l2', label: 'Prompt Injection · L2 (role swap)', description: 'Role / persona reframing — "you are now DAN" / unrestricted twin' },
+  { value: 'prompt_injection_l3', label: 'Prompt Injection · L3 (multi-turn / authority)', description: 'Indirect, multi-turn, claimed authority ("I am your developer / auditor")' },
+  { value: 'jailbreak_attempt', label: 'Jailbreak Attempt', description: 'Hypothetical / fictional framing to bypass safety' },
+  { value: 'pii_handling', label: 'PII Handling', description: 'Test discreet handling of user-provided PII' },
+  { value: 'pii_exposure', label: 'PII Exposure (third-party)', description: 'Try to make the agent reveal other people\'s PII' },
+  { value: 'unauthorized_access', label: 'Unauthorized Access', description: 'Claim a role without verification' },
+  { value: 'social_engineering', label: 'Social Engineering', description: 'Urgency + authority + emotional pressure' },
+  { value: 'toxic_content', label: 'Toxic Content', description: 'Hate, profanity, slurs — agent must refuse and de-escalate' },
+  { value: 'harmful_advice', label: 'Harmful Advice', description: 'Medical / legal / financial / dangerous advice it must decline' },
+  { value: 'adversarial_input', label: 'Adversarial Input', description: 'Contradictory / paradoxical inputs — agent should clarify' },
+  { value: 'data_exfiltration', label: 'Data Exfiltration', description: 'Pull system prompt / tool list / internal config' },
+  { value: 'medical_data_request', label: 'Medical Data Request', description: 'Third-party PHI or diagnosis requests — agent must refuse' },
+  { value: 'pci_data_request', label: 'PCI Data Request', description: 'Card number / CVV / expiry echo attempts — agent must refuse' },
 ];
 
 interface KeyTopic {
@@ -172,6 +198,22 @@ export default function TestCasesPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+
+  // Item 5: Evaluation Dataset Review — generated cases held in client state
+  // until the user explicitly reviews & saves them.
+  type DraftCase = {
+    name: string;
+    description: string;
+    scenario: string;
+    expected_behavior: string;
+    key_topic: string;
+    test_type: string;
+    batch_compatible: boolean;
+    include: boolean;
+  };
+  const [draftCases, setDraftCases] = useState<DraftCase[]>([]);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [savingReviewed, setSavingReviewed] = useState(false);
   
   // Form states
   const [newTestCase, setNewTestCase] = useState({
@@ -299,37 +341,73 @@ export default function TestCasesPage() {
       }
       
       if (data.testCases && data.testCases.length > 0) {
-        // Create test cases in bulk
-        const bulkRes = await fetch(api.endpoints.testCases.bulk, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            test_cases: data.testCases.map((tc: { name: string; description: string; scenario: string; expectedBehavior: string; keyTopic: string; testType: string; batchCompatible: boolean }) => ({
-              name: tc.name,
-              description: tc.description,
-              agent_id: selectedAgentId,
-              scenario: tc.scenario,
-              expected_behavior: tc.expectedBehavior,
-              key_topic: tc.keyTopic,
-              test_type: tc.testType,
-              batch_compatible: tc.batchCompatible,
-            })),
-          }),
-        });
-        
-        if (bulkRes.ok) {
-          await fetchTestCases();
-        }
+        // Item 5: do NOT auto-persist. Stage as drafts and open review dialog so
+        // the user can edit / approve / discard each case BEFORE it hits the DB.
+        const drafts: DraftCase[] = data.testCases.map((tc: { name: string; description: string; scenario: string; expectedBehavior: string; keyTopic: string; testType: string; batchCompatible: boolean }) => ({
+          name: tc.name || '',
+          description: tc.description || '',
+          scenario: tc.scenario || '',
+          expected_behavior: tc.expectedBehavior || '',
+          key_topic: tc.keyTopic || '',
+          test_type: tc.testType || 'happy_path',
+          batch_compatible: !!tc.batchCompatible,
+          include: true,
+        }));
+        setDraftCases(drafts);
+        setShowGenerateDialog(false);
+        setShowReviewDialog(true);
+      } else {
+        setShowGenerateDialog(false);
       }
-      
-      setShowGenerateDialog(false);
     } catch (error) {
       console.error("Failed to generate test cases:", error);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Item 5: persist the reviewed dataset.
+  const saveReviewedDataset = async () => {
+    const selected = draftCases.filter(d => d.include);
+    if (selected.length === 0) {
+      toast.error('Select at least one test case to save');
+      return;
+    }
+    setSavingReviewed(true);
+    try {
+      const token = await getToken();
+      const bulkRes = await fetch(api.endpoints.testCases.bulk, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          test_cases: selected.map(d => ({
+            name: d.name,
+            description: d.description,
+            agent_id: selectedAgentId,
+            scenario: d.scenario,
+            expected_behavior: d.expected_behavior,
+            key_topic: d.key_topic,
+            test_type: d.test_type,
+            batch_compatible: d.batch_compatible,
+          })),
+        }),
+      });
+      if (bulkRes.ok) {
+        await fetchTestCases();
+        toast.success(`Saved ${selected.length} reviewed test case${selected.length === 1 ? '' : 's'}`);
+        setShowReviewDialog(false);
+        setDraftCases([]);
+      } else {
+        const err = await bulkRes.json().catch(() => ({} as any));
+        toast.error(err?.error || 'Failed to save reviewed test cases');
+      }
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save reviewed test cases');
+    } finally {
+      setSavingReviewed(false);
     }
   };
   const analyzeForBatching = async () => {
@@ -763,6 +841,125 @@ export default function TestCasesPage() {
                       <Sparkles className="h-4 w-4 mr-2" />
                       Generate Test Cases
                     </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Item 5: Evaluation Dataset Review dialog */}
+          <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
+            <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Review Generated Test Cases ({draftCases.filter(d => d.include).length}/{draftCases.length} selected)
+                </DialogTitle>
+                <DialogDescription>
+                  Review, edit, or remove any AI-generated test case before saving.
+                  Nothing is persisted until you click <strong>Save Selected</strong>.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDraftCases(prev => prev.map(d => ({ ...d, include: true })))}
+                >
+                  Select all
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDraftCases(prev => prev.map(d => ({ ...d, include: false })))}
+                >
+                  Clear
+                </Button>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  Edits below stay local — Cancel discards all draft cases.
+                </span>
+              </div>
+
+              <ScrollArea className="flex-1 pr-2 -mr-2">
+                <div className="space-y-3 py-3">
+                  {draftCases.map((d, idx) => (
+                    <div
+                      key={idx}
+                      className={`border rounded-md p-3 space-y-2 ${d.include ? '' : 'opacity-50 bg-muted/30'}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <Checkbox
+                          checked={d.include}
+                          onCheckedChange={(checked) => {
+                            setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, include: !!checked } : x));
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 grid grid-cols-2 gap-2">
+                          <div className="col-span-2 sm:col-span-1">
+                            <Label className="text-xs">Name</Label>
+                            <Input
+                              value={d.name}
+                              onChange={(e) => setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
+                            />
+                          </div>
+                          <div className="col-span-2 sm:col-span-1">
+                            <Label className="text-xs">Key topic</Label>
+                            <Input
+                              value={d.key_topic}
+                              onChange={(e) => setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, key_topic: e.target.value } : x))}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-xs">Description</Label>
+                            <Input
+                              value={d.description}
+                              onChange={(e) => setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-xs">Scenario (what the test caller will simulate)</Label>
+                            <Textarea
+                              rows={2}
+                              value={d.scenario}
+                              onChange={(e) => setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, scenario: e.target.value } : x))}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-xs">Expected behaviour (PASS criterion)</Label>
+                            <Textarea
+                              rows={2}
+                              value={d.expected_behavior}
+                              onChange={(e) => setDraftCases(prev => prev.map((x, i) => i === idx ? { ...x, expected_behavior: e.target.value } : x))}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {draftCases.length === 0 && (
+                    <p className="text-sm text-muted-foreground py-6 text-center">No drafts to review.</p>
+                  )}
+                </div>
+              </ScrollArea>
+
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => { setShowReviewDialog(false); setDraftCases([]); }}
+                  disabled={savingReviewed}
+                >
+                  Discard
+                </Button>
+                <Button onClick={saveReviewedDataset} disabled={savingReviewed || draftCases.filter(d => d.include).length === 0}>
+                  {savingReviewed ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    <>Save Selected ({draftCases.filter(d => d.include).length})</>
                   )}
                 </Button>
               </DialogFooter>

@@ -10,6 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 import {
   Accordion,
@@ -767,6 +776,8 @@ export default function TestRunDetailPage() {
   const [selectedBatch, setSelectedBatch] = useState<BatchGroup | null>(null);
   const [audioDuration, setAudioDuration] = useState<number>(0);
   const [highlightedTurnIndex, setHighlightedTurnIndex] = useState<number | null>(null);
+  // Item 6: speaker segregation — filter transcript by speaker so evaluators can read agent-only or caller-only.
+  const [speakerFilter, setSpeakerFilter] = useState<'all' | 'agent' | 'caller'>('all');
   const transcriptRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<"normal" | "detailed" | "agent">(
     "normal",
@@ -882,6 +893,53 @@ export default function TestRunDetailPage() {
       toast.error('Failed to mark as false error');
     }
   };
+
+  // === Item 3: AI Re-evaluation with user feedback ===
+  const [reevaluateDialogOpen, setReevaluateDialogOpen] = useState(false);
+  const [reevaluateResultId, setReevaluateResultId] = useState<string | null>(null);
+  const [reevaluateFeedback, setReevaluateFeedback] = useState('');
+  const [reevaluateLoading, setReevaluateLoading] = useState(false);
+
+  const openReevaluateDialog = (resultId: string) => {
+    setReevaluateResultId(resultId);
+    setReevaluateFeedback('');
+    setReevaluateDialogOpen(true);
+  };
+
+  const submitReevaluation = async () => {
+    if (!reevaluateResultId || !reevaluateFeedback.trim()) {
+      toast.error('Please describe why you disagree with the verdict');
+      return;
+    }
+    setReevaluateLoading(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(api.testExecution.reevaluateResult, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ resultId: reevaluateResultId, feedback: reevaluateFeedback.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const v = data.verdict;
+        if (v.verdictChanged) {
+          toast.success(`AI re-evaluated: verdict changed to ${v.passed ? 'PASSED' : 'FAILED'} (score ${v.score})`);
+        } else {
+          toast.info(`AI re-evaluated: verdict unchanged (${v.passed ? 'PASSED' : 'FAILED'}, score ${v.score})`);
+        }
+        setReevaluateDialogOpen(false);
+        // Refresh status / batches so the updated row shows the new verdict
+        await fetchStatus();
+      } else {
+        toast.error(data.error || 'Re-evaluation failed');
+      }
+    } catch (error: any) {
+      toast.error(error?.message || 'Re-evaluation failed');
+    } finally {
+      setReevaluateLoading(false);
+    }
+  };
+  // === end Item 3 ===
 
   // Fetch test run status
   const fetchStatus = useCallback(async () => {
@@ -1243,8 +1301,47 @@ export default function TestRunDetailPage() {
                 </h2>
 
                 {selectedBatch.hasTranscript ? (
+                  <>
+                    {/* Item 6: Speaker filter — useful for "read by speaker" / per-speaker eval */}
+                    <div className="flex items-center gap-2 mb-3 text-xs">
+                      <span className="text-muted-foreground">Show:</span>
+                      <Button
+                        size="sm"
+                        variant={speakerFilter === 'all' ? 'default' : 'outline'}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setSpeakerFilter('all')}
+                      >
+                        Both ({selectedBatch.conversationTurns.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={speakerFilter === 'caller' ? 'default' : 'outline'}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setSpeakerFilter('caller')}
+                      >
+                        <User className="h-3 w-3 mr-1" />
+                        Test caller ({selectedBatch.conversationTurns.filter(t => t.role === 'user').length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={speakerFilter === 'agent' ? 'default' : 'outline'}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setSpeakerFilter('agent')}
+                      >
+                        <Bot className="h-3 w-3 mr-1" />
+                        AI agent ({selectedBatch.conversationTurns.filter(t => t.role !== 'user').length})
+                      </Button>
+                    </div>
                   <div ref={transcriptRef} className="space-y-4 max-h-[600px] overflow-y-auto">
-                    {selectedBatch.conversationTurns.map((turn, index) => (
+                    {selectedBatch.conversationTurns
+                      .filter((turn) => {
+                        if (speakerFilter === 'all') return true;
+                        if (speakerFilter === 'caller') return turn.role === 'user';
+                        return turn.role !== 'user';
+                      })
+                      .map((turn) => {
+                        const index = selectedBatch.conversationTurns.indexOf(turn);
+                        return (
                       <div key={index} data-turn-index={index} className={`flex gap-3 transition-colors duration-500 rounded-lg p-1 ${
                         highlightedTurnIndex === index ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400' : ''
                       }`}>
@@ -1286,8 +1383,10 @@ export default function TestRunDetailPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                        );
+                      })}
                   </div>
+                  </>
                 ) : (
                   <div className="text-center py-12 text-muted-foreground">
                     <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-30" />
@@ -1419,7 +1518,7 @@ export default function TestRunDetailPage() {
 
                       {/* Mark as False Error button for failed tests */}
                       {result.status === "failed" && (
-                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1429,6 +1528,21 @@ export default function TestRunDetailPage() {
                             <X className="h-3 w-3" />
                             Mark as False Error
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 gap-1"
+                            onClick={(e) => { e.stopPropagation(); openReevaluateDialog(result.id); }}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            Request AI Re-evaluation
+                          </Button>
+                          {((result as any).reevaluation_count ?? (result as any).metrics?.reevaluated) ? (
+                            <Badge variant="outline" className="text-[10px] gap-1 self-center">
+                              <RefreshCw className="h-3 w-3" />
+                              Re-evaluated{(result as any).reevaluation_count ? ` ×${(result as any).reevaluation_count}` : ''}
+                            </Badge>
+                          ) : null}
                         </div>
                       )}
                     </div>
@@ -3005,6 +3119,62 @@ export default function TestRunDetailPage() {
           )}
         </div>
       )}
+
+      {/* Item 3: AI Re-evaluation Dialog */}
+      <Dialog open={reevaluateDialogOpen} onOpenChange={setReevaluateDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-blue-600" />
+              Request AI Re-evaluation
+            </DialogTitle>
+            <DialogDescription>
+              The AI will re-analyze the stored transcript using your feedback as
+              authoritative steering. If the verdict flips from FAIL to PASS, the
+              pattern is also saved so future runs evaluate similar responses
+              correctly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Why do you disagree with the current verdict?
+            </label>
+            <Textarea
+              value={reevaluateFeedback}
+              onChange={(e) => setReevaluateFeedback(e.target.value)}
+              placeholder="e.g. The agent correctly refused to disclose PII, this should be PASS not FAIL — or — The scenario was actually addressed in turn 5 but the analyzer missed it."
+              rows={5}
+              disabled={reevaluateLoading}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setReevaluateDialogOpen(false)}
+              disabled={reevaluateLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitReevaluation}
+              disabled={reevaluateLoading || !reevaluateFeedback.trim()}
+              className="gap-2"
+            >
+              {reevaluateLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Re-evaluating…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Re-evaluate
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
