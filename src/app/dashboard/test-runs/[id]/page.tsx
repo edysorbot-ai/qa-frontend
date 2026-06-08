@@ -816,6 +816,8 @@ export default function TestRunDetailPage() {
   const [isPolling, setIsPolling] = useState(true);
   const [selectedBatch, setSelectedBatch] = useState<BatchGroup | null>(null);
   const [audioDuration, setAudioDuration] = useState<number>(0);
+  // Response-segregation: which speaker track to play (other speaker is muted)
+  const [audioSpeaker, setAudioSpeaker] = useState<'full' | 'user' | 'agent'>('full');
   const [highlightedTurnIndex, setHighlightedTurnIndex] = useState<number | null>(null);
   // Item 6: speaker segregation — filter transcript by speaker so evaluators can read agent-only or caller-only.
   const [speakerFilter, setSpeakerFilter] = useState<'all' | 'agent' | 'caller'>('all');
@@ -1355,13 +1357,48 @@ export default function TestRunDetailPage() {
           </TabsList>
 
           <TabsContent value="transcript" className="space-y-6">
-            {/* Audio Recording Player */}
+            {/* Audio Recording Player — with per-speaker segregation */}
             {selectedBatch.hasRecording && selectedBatch.audioUrl && (
-              <ModernAudioPlayer
-                src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${selectedBatch.audioUrl}`}
-                conversationTurns={selectedBatch.conversationTurns}
-                onTimeUpdate={(time) => setAudioDuration(time)}
-              />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground font-medium">Listen as:</span>
+                  <Button
+                    size="sm"
+                    variant={audioSpeaker === 'full' ? 'default' : 'outline'}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setAudioSpeaker('full')}
+                  >
+                    Full call
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={audioSpeaker === 'user' ? 'default' : 'outline'}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setAudioSpeaker('user')}
+                  >
+                    <User className="h-3 w-3 mr-1" />
+                    Caller only
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={audioSpeaker === 'agent' ? 'default' : 'outline'}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setAudioSpeaker('agent')}
+                  >
+                    <Bot className="h-3 w-3 mr-1" />
+                    Agent only
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground italic ml-1">
+                    (other speaker muted — same length, original timing)
+                  </span>
+                </div>
+                <ModernAudioPlayer
+                  key={audioSpeaker}
+                  src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${selectedBatch.audioUrl}/${audioSpeaker}`}
+                  conversationTurns={selectedBatch.conversationTurns}
+                  onTimeUpdate={(time) => setAudioDuration(time)}
+                />
+              </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
