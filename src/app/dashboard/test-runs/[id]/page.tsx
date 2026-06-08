@@ -138,6 +138,36 @@ interface TestResult {
     timestamp: string;
   }>;
   promptSuggestions?: PromptSuggestion[];
+  // Items 9 & 10: factual + tone/style evaluator metrics persisted in metrics JSONB
+  metrics?: {
+    reasoning?: string;
+    factualAssessment?: {
+      hasFactualClaims: boolean;
+      suspectedHallucinations: string[];
+      confidence: number;
+      hallucinationDetected?: boolean;
+    };
+    toneStyle?: {
+      tone: string;
+      brandAlignment: number;
+      conciseness: number;
+      notes: string;
+    } | null;
+    // Item 26: PII redaction stats
+    piiRedaction?: {
+      redactionCount: number;
+      typesRedacted: string[];
+    };
+    // Item 28: sensitive content flags
+    sensitiveData?: {
+      hasMedicalContent: boolean;
+      hasPCIContent: boolean;
+      medicalCount: number;
+      pciCount: number;
+      samples: { type: string; match: string }[];
+    };
+    [k: string]: any;
+  };
 }
 
 interface BatchGroup {
@@ -157,6 +187,17 @@ interface BatchGroup {
     role: string;
     content: string;
     timestamp: string;
+    // Item 11: per-turn metrics for the breakdown UI.
+    durationMs?: number;
+    latency_breakdown?: {
+      sttMs?: number;
+      llmMs?: number;
+      toolMs?: number;
+      ttsMs?: number;
+      otherMs?: number;
+      source?: 'provider' | 'heuristic';
+    };
+    tool_call?: { name?: string; durationMs?: number };
   }>;
   promptSuggestions?: PromptSuggestion[];
   userTranscript?: string;
@@ -914,7 +955,7 @@ export default function TestRunDetailPage() {
     setReevaluateLoading(true);
     try {
       const token = await getToken();
-      const res = await fetch(api.testExecution.reevaluateResult, {
+      const res = await fetch(api.endpoints.testExecution.reevaluateResult, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ resultId: reevaluateResultId, feedback: reevaluateFeedback.trim() }),
@@ -1381,6 +1422,47 @@ export default function TestRunDetailPage() {
                           >
                             {turn.content}
                           </div>
+                          {/* Item 11: per-turn latency breakdown for agent turns */}
+                          {turn.role !== 'user' && (turn.durationMs || turn.latency_breakdown) && (
+                            <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                              {turn.durationMs ? (
+                                <Badge variant="outline" className="text-[10px] border-slate-300 text-slate-700 dark:text-slate-400 gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {turn.durationMs}ms total
+                                </Badge>
+                              ) : null}
+                              {turn.latency_breakdown?.sttMs ? (
+                                <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 dark:text-blue-400" title="Speech to Text">
+                                  STT {turn.latency_breakdown.sttMs}ms
+                                </Badge>
+                              ) : null}
+                              {turn.latency_breakdown?.llmMs ? (
+                                <Badge variant="outline" className="text-[10px] border-violet-300 text-violet-700 dark:text-violet-400" title="LLM inference">
+                                  LLM {turn.latency_breakdown.llmMs}ms
+                                </Badge>
+                              ) : null}
+                              {turn.latency_breakdown?.toolMs ? (
+                                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 dark:text-amber-400" title={turn.tool_call?.name || 'Tool call'}>
+                                  Tool {turn.latency_breakdown.toolMs}ms{turn.tool_call?.name ? ` (${turn.tool_call.name})` : ''}
+                                </Badge>
+                              ) : null}
+                              {turn.latency_breakdown?.ttsMs ? (
+                                <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700 dark:text-emerald-400" title="Text to Speech">
+                                  TTS {turn.latency_breakdown.ttsMs}ms
+                                </Badge>
+                              ) : null}
+                              {turn.latency_breakdown?.source === 'heuristic' && (
+                                <span className="text-[10px] text-muted-foreground italic">
+                                  (estimated)
+                                </span>
+                              )}
+                              {turn.latency_breakdown?.source === 'provider' && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  (provider)
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                         );
@@ -1471,6 +1553,102 @@ export default function TestRunDetailPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Items 9 & 10: factual + tone/style summary chips (compact) */}
+                      {(result.metrics?.factualAssessment ||
+                        result.metrics?.toneStyle ||
+                        result.metrics?.piiRedaction?.redactionCount ||
+                        result.metrics?.sensitiveData?.hasMedicalContent ||
+                        result.metrics?.sensitiveData?.hasPCIContent) && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {result.metrics?.factualAssessment?.hallucinationDetected && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-red-300 text-red-700 dark:text-red-400 gap-1"
+                              title={result.metrics.factualAssessment.suspectedHallucinations.join(' • ')}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Hallucination ({result.metrics.factualAssessment.suspectedHallucinations.length})
+                            </Badge>
+                          )}
+                          {result.metrics?.factualAssessment?.hasFactualClaims === true &&
+                            !result.metrics.factualAssessment.hallucinationDetected && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] border-green-300 text-green-700 dark:text-green-400"
+                                title={`Factual confidence: ${result.metrics.factualAssessment.confidence}%`}
+                              >
+                                Factual ✓ {result.metrics.factualAssessment.confidence}%
+                              </Badge>
+                            )}
+                          {result.metrics?.toneStyle && (
+                            <>
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] border-blue-300 text-blue-700 dark:text-blue-400 capitalize"
+                                title={result.metrics.toneStyle.notes}
+                              >
+                                Tone: {result.metrics.toneStyle.tone}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] ${
+                                  result.metrics.toneStyle.brandAlignment >= 80
+                                    ? 'border-green-300 text-green-700 dark:text-green-400'
+                                    : result.metrics.toneStyle.brandAlignment >= 50
+                                      ? 'border-amber-300 text-amber-700 dark:text-amber-400'
+                                      : 'border-red-300 text-red-700 dark:text-red-400'
+                                }`}
+                              >
+                                Brand: {result.metrics.toneStyle.brandAlignment}%
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] ${
+                                  result.metrics.toneStyle.conciseness >= 80
+                                    ? 'border-green-300 text-green-700 dark:text-green-400'
+                                    : result.metrics.toneStyle.conciseness >= 50
+                                      ? 'border-amber-300 text-amber-700 dark:text-amber-400'
+                                      : 'border-red-300 text-red-700 dark:text-red-400'
+                                }`}
+                              >
+                                Concise: {result.metrics.toneStyle.conciseness}%
+                              </Badge>
+                            </>
+                          )}
+                          {/* Item 26: PII redaction count */}
+                          {result.metrics?.piiRedaction?.redactionCount ? (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-purple-300 text-purple-700 dark:text-purple-400"
+                              title={`Redacted before sending to LLM: ${result.metrics.piiRedaction.typesRedacted.join(', ')}`}
+                            >
+                              PII redacted ×{result.metrics.piiRedaction.redactionCount}
+                            </Badge>
+                          ) : null}
+                          {/* Item 28: sensitive content flags */}
+                          {result.metrics?.sensitiveData?.hasMedicalContent && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-rose-300 text-rose-700 dark:text-rose-400 gap-1"
+                              title={`Medical cues: ${result.metrics.sensitiveData.samples.filter(s => s.type === 'medical_condition' || s.type === 'medication').map(s => s.match).join(', ')}`}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Medical content
+                            </Badge>
+                          )}
+                          {result.metrics?.sensitiveData?.hasPCIContent && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-orange-300 text-orange-700 dark:text-orange-400 gap-1"
+                              title={`PCI cues: ${result.metrics.sensitiveData.samples.filter(s => s.type.startsWith('pci')).map(s => s.match).join(', ')}`}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              PCI content
+                            </Badge>
+                          )}
+                        </div>
+                      )}
 
                       {/* Prompt Improvement Suggestions for Failed Tests */}
                       {result.status === "failed" &&

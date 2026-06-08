@@ -97,6 +97,8 @@ export const api = {
       markFalsePositive: `${API_BASE_URL}/api/test-execution/mark-false-positive`,
       falsePositivePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-positive-patterns/${agentId}`,
       reevaluateResult: `${API_BASE_URL}/api/test-execution/reevaluate-result`,
+      testCaseTemplates: `${API_BASE_URL}/api/test-execution/test-case-templates`,
+      generateFromTemplate: `${API_BASE_URL}/api/test-execution/test-case-templates/generate`,
     },
 
     // A/B Testing
@@ -186,6 +188,20 @@ export const api = {
       weeklyAvailability: `${API_BASE_URL}/api/booking/weekly-availability`,
       get: (id: string) => `${API_BASE_URL}/api/booking/${id}`,
       cancel: (id: string) => `${API_BASE_URL}/api/booking/${id}/cancel`,
+    },
+
+    // Items 29 & 30: prompt sanitizer + LLM-change recommendations
+    recommendations: {
+      sanitizePrompt: `${API_BASE_URL}/api/recommendations/sanitize-prompt`,
+      sanitizeResponse: `${API_BASE_URL}/api/recommendations/sanitize-response`,
+      llmChange: `${API_BASE_URL}/api/recommendations/llm-change`,
+    },
+
+    // Item 21: tool call success rate per agent
+    toolValidation: {
+      stats: (agentId: string) => `${API_BASE_URL}/api/tools/stats/${agentId}`,
+      validate: `${API_BASE_URL}/api/tools/validate`,
+      schemas: (agentId: string) => `${API_BASE_URL}/api/tools/schemas/${agentId}`,
     },
   },
   

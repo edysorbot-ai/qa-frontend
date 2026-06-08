@@ -34,6 +34,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Plus,
   Loader2,
   Bot,
@@ -78,6 +85,8 @@ interface ConnectedAgent {
   config: Record<string, any>;
   prompt?: string;
   status: "active" | "inactive" | "error";
+  /** Item 17: maturity stage */
+  lifecycle_stage?: "development" | "qa" | "uat" | "production";
   created_at: string;
   updated_at: string;
 }
@@ -257,6 +266,25 @@ export default function AgentsPage() {
 
     loadConnectedAgents();
   }, [getToken]);
+
+  // Item 17: update an agent's lifecycle_stage in place.
+  const updateLifecycleStage = async (agentId: string, stage: 'development' | 'qa' | 'uat' | 'production') => {
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.agents.update(agentId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ lifecycle_stage: stage }),
+      });
+      if (res.ok) {
+        setConnectedAgents(prev => prev.map(a => a.id === agentId ? { ...a, lifecycle_stage: stage } : a));
+      } else {
+        console.error('Failed to update lifecycle stage');
+      }
+    } catch (err) {
+      console.error('Update lifecycle stage error', err);
+    }
+  };
 
   // Fetch integrations when modal opens
   useEffect(() => {
@@ -735,18 +763,46 @@ ${customConfig.agentType === "voice" ? "5. Confirm important information by repe
                   <Calendar className="h-4 w-4" />
                   <span>Connected {formatDate(agent.created_at)}</span>
                 </div>
-                {agent.status !== "active" && (
-                  <Badge
-                    variant="outline"
-                    className={
-                      agent.status === "error"
-                        ? "mt-2 text-red-600 border-red-300"
-                        : "mt-2 text-gray-600 border-gray-300"
-                    }
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {/* Item 17: lifecycle stage selector */}
+                  <Select
+                    value={agent.lifecycle_stage || 'development'}
+                    onValueChange={(v) => updateLifecycleStage(agent.id, v as any)}
                   >
-                    {agent.status}
-                  </Badge>
-                )}
+                    <SelectTrigger
+                      className={`h-7 px-2 text-xs gap-1 w-auto ${
+                        (agent.lifecycle_stage || 'development') === 'production'
+                          ? 'border-green-300 text-green-700 dark:text-green-400'
+                          : (agent.lifecycle_stage || 'development') === 'uat'
+                          ? 'border-blue-300 text-blue-700 dark:text-blue-400'
+                          : (agent.lifecycle_stage || 'development') === 'qa'
+                          ? 'border-amber-300 text-amber-700 dark:text-amber-400'
+                          : 'border-slate-300 text-slate-700 dark:text-slate-400'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="development">Development</SelectItem>
+                      <SelectItem value="qa">QA</SelectItem>
+                      <SelectItem value="uat">UAT</SelectItem>
+                      <SelectItem value="production">Production</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {agent.status !== "active" && (
+                    <Badge
+                      variant="outline"
+                      className={
+                        agent.status === "error"
+                          ? "text-red-600 border-red-300"
+                          : "text-gray-600 border-gray-300"
+                      }
+                    >
+                      {agent.status}
+                    </Badge>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

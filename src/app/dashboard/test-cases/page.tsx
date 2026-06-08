@@ -54,6 +54,7 @@ import {
   Shield,
   Volume2,
   AlertTriangle,
+  LayoutTemplate,
 } from "lucide-react";
 import api from "@/lib/api";
 
@@ -214,6 +215,23 @@ export default function TestCasesPage() {
   const [draftCases, setDraftCases] = useState<DraftCase[]>([]);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [savingReviewed, setSavingReviewed] = useState(false);
+
+  // Item 7: Pre-defined test case templates
+  type TemplateListItem = {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    is_security_test: boolean;
+    security_test_type?: string | null;
+    persona_type?: string | null;
+    behavior_modifiers?: string[] | null;
+    slot_count: number;
+  };
+  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
+  const [showTemplatesDialog, setShowTemplatesDialog] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null);
   
   // Form states
   const [newTestCase, setNewTestCase] = useState({
@@ -410,6 +428,69 @@ export default function TestCasesPage() {
       setSavingReviewed(false);
     }
   };
+
+  // Item 7: load template list lazily when dialog opens.
+  const openTemplatesDialog = async () => {
+    setShowTemplatesDialog(true);
+    if (templates.length === 0) {
+      setLoadingTemplates(true);
+      try {
+        const token = await getToken();
+        const res = await fetch(api.endpoints.testExecution.testCaseTemplates, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success) setTemplates(data.templates);
+        else toast.error(data.error || 'Failed to load templates');
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to load templates');
+      } finally {
+        setLoadingTemplates(false);
+      }
+    }
+  };
+
+  // Item 7: generate a draft case from a template and route into the Review dialog.
+  const generateFromTemplate = async (templateId: string) => {
+    if (!selectedAgentId) {
+      toast.error('Select an agent first');
+      return;
+    }
+    setGeneratingFromTemplate(templateId);
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.testExecution.generateFromTemplate, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ templateId, agentId: selectedAgentId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || 'Failed to generate from template');
+        return;
+      }
+      const tc = data.testCase;
+      const draft: DraftCase = {
+        name: tc.name,
+        description: tc.description || '',
+        scenario: tc.scenario,
+        expected_behavior: tc.expected_behavior,
+        key_topic: tc.key_topic || '',
+        test_type: tc.test_type || 'standard',
+        batch_compatible: !tc.is_security_test,
+        include: true,
+      };
+      setDraftCases(prev => [...prev, draft]);
+      setShowTemplatesDialog(false);
+      setShowReviewDialog(true);
+      toast.success(`Added "${tc.name}" — review and save`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to generate from template');
+    } finally {
+      setGeneratingFromTemplate(null);
+    }
+  };
+
   const analyzeForBatching = async () => {
     if (selectedTestCases.size === 0) {
       toast.error("Please select test cases to batch");
@@ -843,6 +924,83 @@ export default function TestCasesPage() {
                     </>
                   )}
                 </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Item 7: Pre-defined templates trigger */}
+          <Button variant="outline" className="gap-2" onClick={openTemplatesDialog}>
+            <LayoutTemplate className="h-4 w-4" />
+            From Template
+          </Button>
+
+          {/* Item 7: Pre-defined templates gallery */}
+          <Dialog open={showTemplatesDialog} onOpenChange={setShowTemplatesDialog}>
+            <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <LayoutTemplate className="h-4 w-4 text-primary" />
+                  Pre-defined Test Case Templates
+                </DialogTitle>
+                <DialogDescription>
+                  Templates define the construct (scenario shape + pass criterion + persona + security flags).
+                  AI is used only to fill agent-specific slots — it cannot change the test type. After generation
+                  you can still review and edit before saving.
+                </DialogDescription>
+              </DialogHeader>
+              <ScrollArea className="flex-1 pr-2 -mr-2">
+                {loadingTemplates ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-2 py-3">
+                    {templates.map((tpl) => (
+                      <div key={tpl.id} className="border rounded-md p-3 flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm">{tpl.name}</span>
+                            <Badge variant="outline" className="text-[10px]">{tpl.category}</Badge>
+                            {tpl.is_security_test && (
+                              <Badge variant="destructive" className="text-[10px] gap-1">
+                                <Shield className="h-3 w-3" />
+                                Security
+                              </Badge>
+                            )}
+                            {tpl.persona_type && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                Persona: {tpl.persona_type}
+                              </Badge>
+                            )}
+                            {tpl.slot_count > 0 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                {tpl.slot_count} AI-filled slot{tpl.slot_count > 1 ? 's' : ''}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{tpl.description}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => generateFromTemplate(tpl.id)}
+                          disabled={generatingFromTemplate !== null || !selectedAgentId}
+                        >
+                          {generatingFromTemplate === tpl.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            'Use'
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                    {templates.length === 0 && !loadingTemplates && (
+                      <p className="text-center text-sm text-muted-foreground py-6">No templates available</p>
+                    )}
+                  </div>
+                )}
+              </ScrollArea>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowTemplatesDialog(false)}>Close</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
