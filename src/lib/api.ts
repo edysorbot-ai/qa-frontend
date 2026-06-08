@@ -107,6 +107,13 @@ export const api = {
       markFalseNegative: `${API_BASE_URL}/api/test-execution/mark-false-negative`,
       falseNegativePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-negative-patterns/${agentId}`,
       reevaluateResult: `${API_BASE_URL}/api/test-execution/reevaluate-result`,
+      amendTestAgent: `${API_BASE_URL}/api/test-execution/amend-test-agent`,
+      applyAmendment: (amendmentId: string) =>
+        `${API_BASE_URL}/api/test-execution/amend-test-agent/${amendmentId}/apply`,
+      rejectAmendment: (amendmentId: string) =>
+        `${API_BASE_URL}/api/test-execution/amend-test-agent/${amendmentId}/reject`,
+      listAmendments: (agentId: string) =>
+        `${API_BASE_URL}/api/test-execution/agent-prompt-amendments/${agentId}`,
       testCaseTemplates: `${API_BASE_URL}/api/test-execution/test-case-templates`,
       generateFromTemplate: `${API_BASE_URL}/api/test-execution/test-case-templates/generate`,
     },

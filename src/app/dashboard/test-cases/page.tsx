@@ -58,6 +58,7 @@ import {
   Lock,
   CheckCircle2,
   BookOpen,
+  ExternalLink,
 } from "lucide-react";
 import api from "@/lib/api";
 import { GoldExamplesDialog } from "@/components/test-cases/gold-examples-dialog";
@@ -169,6 +170,7 @@ interface TestCase {
   sensitive_data_types?: string[];
   gold_gate?: 'soft' | 'strict';
   created_via?: 'manual' | 'auto_seed' | 'ai_generated' | 'csv_import' | 'template';
+  reference_link?: string;
   created_at: string;
 }
 
@@ -252,6 +254,7 @@ export default function TestCasesPage() {
     is_security_test: false,
     security_test_type: "" as SecurityTestType | "",
     sensitive_data_types: [] as string[],
+    reference_link: "",
   });
   
   // Batch states
@@ -778,6 +781,7 @@ export default function TestCasesPage() {
           is_security_test: false,
           security_test_type: "",
           sensitive_data_types: [],
+          reference_link: "",
         });
       } else {
         const err = await res.json().catch(() => null);
@@ -1395,6 +1399,21 @@ export default function TestCasesPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Discussion / reference link */}
+                <div className="grid gap-2">
+                  <Label htmlFor="reference_link">Discussion / Reference Link (Optional)</Label>
+                  <Input
+                    id="reference_link"
+                    type="url"
+                    placeholder="https://… (spec, recording, discussion thread)"
+                    value={newTestCase.reference_link}
+                    onChange={(e) => setNewTestCase({ ...newTestCase, reference_link: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Reviewers will see a link icon on this test case opening the URL.
+                  </p>
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowAddDialog(false)}>
@@ -1588,6 +1607,19 @@ export default function TestCasesPage() {
                                   <Shield className="h-3 w-3 mr-1" />
                                   Security
                                 </Badge>
+                              )}
+                              {testCase.reference_link && (
+                                <a
+                                  href={testCase.reference_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                  title={testCase.reference_link}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  link
+                                </a>
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground line-clamp-1">

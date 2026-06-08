@@ -53,6 +53,7 @@ import {
   GitCompare,
   X,
   ExternalLink,
+  Wand2,
 } from "lucide-react";
 import {
   Table as UITable,
@@ -1015,6 +1016,113 @@ export default function TestRunDetailPage() {
   };
   // === end Item 3 ===
 
+  // === Improve Test Agent: propose + dry-run + apply prompt amendment ===
+  type DryRunVerdict = {
+    scenario: string;
+    expected: string | null;
+    simulated_response_original: string;
+    simulated_response_amended: string;
+    original_passed: boolean;
+    amended_passed: boolean;
+    improved: boolean;
+    regressed: boolean;
+    is_failing_case: boolean;
+  };
+  type AmendmentProposal = {
+    amendmentId: string;
+    status: 'proposed' | 'verified' | 'rejected';
+    amendmentSummary: string;
+    amendedPrompt: string;
+    originalPrompt: string;
+    verificationRuns: DryRunVerdict[];
+    fixedFailingCase: boolean;
+    regressionCount: number;
+  };
+  const [amendDialogOpen, setAmendDialogOpen] = useState(false);
+  const [amendResultId, setAmendResultId] = useState<string | null>(null);
+  const [amendFeedback, setAmendFeedback] = useState('');
+  const [amendLoading, setAmendLoading] = useState(false);
+  const [amendProposal, setAmendProposal] = useState<AmendmentProposal | null>(null);
+  const [amendApplying, setAmendApplying] = useState(false);
+
+  const openAmendDialog = (resultId: string) => {
+    setAmendResultId(resultId);
+    setAmendFeedback('');
+    setAmendProposal(null);
+    setAmendDialogOpen(true);
+  };
+
+  const requestAmendment = async () => {
+    if (!amendResultId || !amendFeedback.trim()) {
+      toast.error('Please describe what the agent should do differently');
+      return;
+    }
+    setAmendLoading(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.testExecution.amendTestAgent, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ resultId: amendResultId, feedback: amendFeedback.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAmendProposal(data.amendment as AmendmentProposal);
+        if (data.amendment.status === 'verified') {
+          toast.success('Amendment verified across all dry-run scenarios');
+        } else {
+          toast.info('Amendment proposed — review the dry-run results before applying');
+        }
+      } else {
+        toast.error(data.error || 'Failed to generate amendment');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to generate amendment');
+    } finally {
+      setAmendLoading(false);
+    }
+  };
+
+  const applyAmendment = async () => {
+    if (!amendProposal) return;
+    if (!confirm('Apply this amendment to the live agent system_prompt? This will change future calls.')) return;
+    setAmendApplying(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        api.endpoints.testExecution.applyAmendment(amendProposal.amendmentId),
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success('Amendment applied to agent system_prompt');
+        setAmendDialogOpen(false);
+      } else {
+        toast.error(data.error || 'Failed to apply amendment');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to apply amendment');
+    } finally {
+      setAmendApplying(false);
+    }
+  };
+
+  const rejectAmendment = async () => {
+    if (!amendProposal) return;
+    try {
+      const token = await getToken();
+      await fetch(
+        api.endpoints.testExecution.rejectAmendment(amendProposal.amendmentId),
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      );
+      toast.info('Amendment rejected');
+      setAmendDialogOpen(false);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to reject amendment');
+    }
+  };
+  // === end Improve Test Agent ===
+
   // Fetch test run status
   const fetchStatus = useCallback(async () => {
     try {
@@ -1783,6 +1891,16 @@ export default function TestRunDetailPage() {
                           >
                             <RefreshCw className="h-3 w-3" />
                             Request AI Re-evaluation
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 gap-1"
+                            onClick={(e) => { e.stopPropagation(); openAmendDialog(result.id); }}
+                            title="Propose a targeted edit to the agent's system prompt, dry-run it on this failing scenario plus 2 siblings, then apply if it fixes the failure without regressions."
+                          >
+                            <Wand2 className="h-3 w-3" />
+                            Improve Test Agent
                           </Button>
                           {((result as any).reevaluation_count ?? (result as any).metrics?.reevaluated) ? (
                             <Badge variant="outline" className="text-[10px] gap-1 self-center">
@@ -3520,6 +3638,171 @@ export default function TestRunDetailPage() {
                 </>
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Improve Test Agent: propose + dry-run + apply prompt amendment */}
+      <Dialog open={amendDialogOpen} onOpenChange={(open) => { if (!amendLoading && !amendApplying) setAmendDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4 text-purple-600" />
+              Improve Test Agent
+            </DialogTitle>
+            <DialogDescription>
+              Describe what the agent should have done. We&apos;ll generate the smallest
+              edit to its system prompt, dry-run it against this failing scenario plus
+              two recent siblings, and let you apply only if it fixes the failure
+              without regressing the others.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!amendProposal && (
+            <div className="space-y-3">
+              <label className="text-sm font-medium">
+                What should the agent do differently?
+              </label>
+              <Textarea
+                value={amendFeedback}
+                onChange={(e) => setAmendFeedback(e.target.value)}
+                placeholder="e.g. When the caller asks for an immediate human, the agent should transfer in one step, not pitch the chatbot first."
+                rows={5}
+                disabled={amendLoading}
+              />
+            </div>
+          )}
+
+          {amendProposal && (
+            <div className="space-y-4">
+              <div className={`p-3 rounded border text-sm ${
+                amendProposal.status === 'verified'
+                  ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
+                  : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800'
+              }`}>
+                <div className="font-medium">
+                  {amendProposal.status === 'verified'
+                    ? `Verified: fixes the failing case, 0 regressions across ${amendProposal.verificationRuns.length - 1} other scenario(s).`
+                    : `Proposed (not auto-verified). Fixed failing case: ${amendProposal.fixedFailingCase ? 'yes' : 'no'} \u00b7 Regressions: ${amendProposal.regressionCount}`}
+                </div>
+                <div className="text-xs mt-1 opacity-80">{amendProposal.amendmentSummary}</div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+                  Dry-run results
+                </div>
+                <div className="space-y-2">
+                  {amendProposal.verificationRuns.map((run, idx) => (
+                    <div
+                      key={idx}
+                      className={`border rounded p-2 text-xs ${
+                        run.is_failing_case ? 'border-purple-300 bg-purple-50/40 dark:bg-purple-900/10' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-medium mb-1">
+                        {run.is_failing_case && (
+                          <Badge variant="outline" className="text-[10px] gap-1">
+                            <AlertTriangle className="h-3 w-3" /> failing case
+                          </Badge>
+                        )}
+                        {run.improved && (
+                          <Badge className="text-[10px] bg-green-600">improved</Badge>
+                        )}
+                        {run.regressed && (
+                          <Badge variant="destructive" className="text-[10px]">regressed</Badge>
+                        )}
+                        {!run.improved && !run.regressed && (
+                          <Badge variant="secondary" className="text-[10px]">unchanged</Badge>
+                        )}
+                        <span className="truncate">{run.scenario.slice(0, 120)}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                            Original {run.original_passed ? 'PASS' : 'FAIL'}
+                          </div>
+                          <div className="line-clamp-3">{run.simulated_response_original || '(empty)'}</div>
+                        </div>
+                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                            Amended {run.amended_passed ? 'PASS' : 'FAIL'}
+                          </div>
+                          <div className="line-clamp-3">{run.simulated_response_amended || '(empty)'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <details className="border rounded p-2 text-xs">
+                <summary className="cursor-pointer font-medium">Proposed system_prompt (full)</summary>
+                <pre className="whitespace-pre-wrap mt-2 max-h-60 overflow-auto">
+                  {amendProposal.amendedPrompt}
+                </pre>
+              </details>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            {!amendProposal && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setAmendDialogOpen(false)}
+                  disabled={amendLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={requestAmendment}
+                  disabled={amendLoading || !amendFeedback.trim()}
+                  className="gap-2"
+                >
+                  {amendLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating & dry-running…
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="h-4 w-4" />
+                      Propose & Dry-run
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+            {amendProposal && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={rejectAmendment}
+                  disabled={amendApplying}
+                >
+                  Reject
+                </Button>
+                <Button
+                  onClick={applyAmendment}
+                  disabled={amendApplying}
+                  className="gap-2"
+                  variant={amendProposal.status === 'verified' ? 'default' : 'destructive'}
+                >
+                  {amendApplying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Applying…
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="h-4 w-4" />
+                      {amendProposal.status === 'verified' ? 'Apply to Agent' : 'Apply Anyway'}
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
