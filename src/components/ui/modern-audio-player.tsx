@@ -64,6 +64,17 @@ export function ModernAudioPlayer({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [canvasWidth, setCanvasWidth] = useState(800);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Reset error state whenever the audio source changes (e.g. user toggles
+  // between full call / caller-only / agent-only) so a transient failure on
+  // one variant doesn't permanently hide the player.
+  useEffect(() => {
+    setLoadError(null);
+    setDuration(0);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  }, [src]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -196,7 +207,7 @@ export function ModernAudioPlayer({
   }, [segments, currentTime, duration, isPlaying]);
 
   const togglePlayPause = async () => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || loadError) return;
     try {
       if (isPlaying) {
         audioRef.current.pause();
@@ -220,7 +231,21 @@ export function ModernAudioPlayer({
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
+      setLoadError(null);
     }
+  };
+
+  const handleAudioError = () => {
+    const el = audioRef.current;
+    let msg = 'Recording could not be loaded';
+    if (el?.error) {
+      // MediaError codes: 1=ABORTED 2=NETWORK 3=DECODE 4=SRC_NOT_SUPPORTED/404
+      if (el.error.code === 4) msg = 'Recording file not found on server (was not captured for this run)';
+      else if (el.error.code === 2) msg = 'Network error while loading recording';
+      else if (el.error.code === 3) msg = 'Recording file is corrupted';
+    }
+    setLoadError(msg);
+    setIsPlaying(false);
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -288,7 +313,9 @@ export function ModernAudioPlayer({
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-white">Call Recording</span>
-            <span className="text-[10px] text-slate-400">{formatDuration(duration)} duration</span>
+            <span className="text-[10px] text-slate-400">
+              {loadError ? 'unavailable' : `${formatDuration(duration)} duration`}
+            </span>
           </div>
         </div>
 
@@ -307,14 +334,25 @@ export function ModernAudioPlayer({
         </div>
       </div>
 
-      {/* Waveform */}
-      <div className="relative px-4 py-3 bg-slate-50 dark:bg-slate-900/50">
-        <canvas
-          ref={canvasRef}
-          className="w-full h-16 cursor-pointer"
-          onClick={handleCanvasClick}
-        />
-      </div>
+      {/* Waveform OR error banner */}
+      {loadError ? (
+        <div className="px-4 py-6 bg-amber-50 dark:bg-amber-900/10 border-y border-amber-200 dark:border-amber-900/40 text-center">
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+            {loadError}
+          </p>
+          <p className="text-[10px] text-amber-700/80 dark:text-amber-300/70 mt-1">
+            The transcript below is still complete — only the audio playback is unavailable.
+          </p>
+        </div>
+      ) : (
+        <div className="relative px-4 py-3 bg-slate-50 dark:bg-slate-900/50">
+          <canvas
+            ref={canvasRef}
+            className="w-full h-16 cursor-pointer"
+            onClick={handleCanvasClick}
+          />
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800">
@@ -394,6 +432,7 @@ export function ModernAudioPlayer({
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => setIsPlaying(false)}
+        onError={handleAudioError}
         preload="metadata"
       />
     </div>

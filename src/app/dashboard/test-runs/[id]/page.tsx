@@ -1405,6 +1405,311 @@ export default function TestRunDetailPage() {
     return "pending";
   };
 
+  // Shared feedback dialogs (False +/-, AI Re-evaluation, Improve Test Agent).
+  // Defined once so they render in both the batch-detail view and the main view —
+  // otherwise the buttons inside the batch-detail tree set state but the Dialog
+  // never mounts because the early return branch doesn't include it.
+  const feedbackDialogs = (
+    <>
+      {/* False Positive / False Negative justification dialog */}
+      <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {feedbackKind === 'false_negative' ? (
+                <>
+                  <X className="h-4 w-4 text-orange-600" />
+                  Mark as False Negative
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  Mark as False Positive
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {feedbackKind === 'false_negative'
+                ? 'This test was marked FAILED but you believe the response was actually acceptable. Explain why — your justification is saved with the pattern and injected into the evaluator’s prompt on future runs so it stops flagging similar responses.'
+                : 'This test was marked PASSED but you believe the response was actually wrong. Explain why — your justification is saved with the pattern and injected into the evaluator’s prompt on future runs so it starts flagging similar responses.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              {feedbackKind === 'false_negative'
+                ? 'Why should this have been PASSED?'
+                : 'Why should this have been FAILED?'}
+            </label>
+            <Textarea
+              value={feedbackJustification}
+              onChange={(e) => setFeedbackJustification(e.target.value)}
+              placeholder={feedbackKind === 'false_negative'
+                ? 'e.g. The agent correctly refused to give medical advice and referred the user to a doctor — the evaluator wrongly counted this as failing to answer.'
+                : 'e.g. The agent gave a confident answer that is factually wrong (claimed our office is open on Sunday). The evaluator missed this because the tone sounded helpful.'}
+              rows={6}
+              disabled={feedbackLoading}
+            />
+            <p className="text-xs text-muted-foreground">
+              The text you write here becomes part of the pattern stored for this
+              agent and will be shown to the evaluator GPT on the next test run.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setFeedbackDialogOpen(false)}
+              disabled={feedbackLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitFalseFeedback}
+              disabled={feedbackLoading || !feedbackJustification.trim()}
+              className="gap-2"
+            >
+              {feedbackLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  {feedbackKind === 'false_negative' ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4" />
+                  )}
+                  Save Feedback
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI Re-evaluation Dialog */}
+      <Dialog open={reevaluateDialogOpen} onOpenChange={setReevaluateDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-blue-600" />
+              Request AI Re-evaluation
+            </DialogTitle>
+            <DialogDescription>
+              The AI will re-analyze the stored transcript using your feedback as
+              authoritative steering. If the verdict flips from FAIL to PASS, the
+              pattern is also saved so future runs evaluate similar responses
+              correctly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Why do you disagree with the current verdict?
+            </label>
+            <Textarea
+              value={reevaluateFeedback}
+              onChange={(e) => setReevaluateFeedback(e.target.value)}
+              placeholder="e.g. The agent correctly refused to disclose PII, this should be PASS not FAIL — or — The scenario was actually addressed in turn 5 but the analyzer missed it."
+              rows={5}
+              disabled={reevaluateLoading}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setReevaluateDialogOpen(false)}
+              disabled={reevaluateLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitReevaluation}
+              disabled={reevaluateLoading || !reevaluateFeedback.trim()}
+              className="gap-2"
+            >
+              {reevaluateLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Re-evaluating…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Re-evaluate
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Improve Test Agent: propose + dry-run + apply prompt amendment */}
+      <Dialog open={amendDialogOpen} onOpenChange={(open) => { if (!amendLoading && !amendApplying) setAmendDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4 text-purple-600" />
+              Improve Test Agent
+            </DialogTitle>
+            <DialogDescription>
+              Describe what the agent should have done. We&apos;ll generate the smallest
+              edit to its system prompt, dry-run it against this failing scenario plus
+              two recent siblings, and let you apply only if it fixes the failure
+              without regressing the others.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!amendProposal && (
+            <div className="space-y-3">
+              <label className="text-sm font-medium">
+                What should the agent do differently?
+              </label>
+              <Textarea
+                value={amendFeedback}
+                onChange={(e) => setAmendFeedback(e.target.value)}
+                placeholder="e.g. When the caller asks for an immediate human, the agent should transfer in one step, not pitch the chatbot first."
+                rows={5}
+                disabled={amendLoading}
+              />
+            </div>
+          )}
+
+          {amendProposal && (
+            <div className="space-y-4">
+              <div className={`p-3 rounded border text-sm ${
+                amendProposal.status === 'verified'
+                  ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
+                  : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800'
+              }`}>
+                <div className="font-medium">
+                  {amendProposal.status === 'verified'
+                    ? `Verified: fixes the failing case, 0 regressions across ${amendProposal.verificationRuns.length - 1} other scenario(s).`
+                    : `Proposed (not auto-verified). Fixed failing case: ${amendProposal.fixedFailingCase ? 'yes' : 'no'} \u00b7 Regressions: ${amendProposal.regressionCount}`}
+                </div>
+                <div className="text-xs mt-1 opacity-80">{amendProposal.amendmentSummary}</div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+                  Dry-run results
+                </div>
+                <div className="space-y-2">
+                  {amendProposal.verificationRuns.map((run, idx) => (
+                    <div
+                      key={idx}
+                      className={`border rounded p-2 text-xs ${
+                        run.is_failing_case ? 'border-purple-300 bg-purple-50/40 dark:bg-purple-900/10' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-medium mb-1">
+                        {run.is_failing_case && (
+                          <Badge variant="outline" className="text-[10px] gap-1">
+                            <AlertTriangle className="h-3 w-3" /> failing case
+                          </Badge>
+                        )}
+                        {run.improved && (
+                          <Badge className="text-[10px] bg-green-600">improved</Badge>
+                        )}
+                        {run.regressed && (
+                          <Badge variant="destructive" className="text-[10px]">regressed</Badge>
+                        )}
+                        {!run.improved && !run.regressed && (
+                          <Badge variant="secondary" className="text-[10px]">unchanged</Badge>
+                        )}
+                        <span className="truncate">{run.scenario.slice(0, 120)}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                            Original {run.original_passed ? 'PASS' : 'FAIL'}
+                          </div>
+                          <div className="line-clamp-3">{run.simulated_response_original || '(empty)'}</div>
+                        </div>
+                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                            Amended {run.amended_passed ? 'PASS' : 'FAIL'}
+                          </div>
+                          <div className="line-clamp-3">{run.simulated_response_amended || '(empty)'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <details className="border rounded p-2 text-xs">
+                <summary className="cursor-pointer font-medium">Proposed system_prompt (full)</summary>
+                <pre className="whitespace-pre-wrap mt-2 max-h-60 overflow-auto">
+                  {amendProposal.amendedPrompt}
+                </pre>
+              </details>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            {!amendProposal && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setAmendDialogOpen(false)}
+                  disabled={amendLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={requestAmendment}
+                  disabled={amendLoading || !amendFeedback.trim()}
+                  className="gap-2"
+                >
+                  {amendLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating & dry-running…
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="h-4 w-4" />
+                      Propose & Dry-run
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+            {amendProposal && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={rejectAmendment}
+                  disabled={amendApplying}
+                >
+                  Reject
+                </Button>
+                <Button
+                  onClick={applyAmendment}
+                  disabled={amendApplying}
+                  className="gap-2"
+                  variant={amendProposal.status === 'verified' ? 'default' : 'destructive'}
+                >
+                  {amendApplying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Applying…
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="h-4 w-4" />
+                      {amendProposal.status === 'verified' ? 'Apply to Agent' : 'Apply Anyway'}
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
   if (isLoading && !status) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -2443,6 +2748,7 @@ export default function TestRunDetailPage() {
             )}
           </TabsContent>
         </Tabs>
+        {feedbackDialogs}
       </div>
     );
   }
@@ -3510,302 +3816,7 @@ export default function TestRunDetailPage() {
         </div>
       )}
 
-      {/* False Positive / False Negative justification dialog */}
-      <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {feedbackKind === 'false_negative' ? (
-                <>
-                  <X className="h-4 w-4 text-orange-600" />
-                  Mark as False Negative
-                </>
-              ) : (
-                <>
-                  <AlertTriangle className="h-4 w-4 text-red-600" />
-                  Mark as False Positive
-                </>
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {feedbackKind === 'false_negative'
-                ? 'This test was marked FAILED but you believe the response was actually acceptable. Explain why — your justification is saved with the pattern and injected into the evaluator’s prompt on future runs so it stops flagging similar responses.'
-                : 'This test was marked PASSED but you believe the response was actually wrong. Explain why — your justification is saved with the pattern and injected into the evaluator’s prompt on future runs so it starts flagging similar responses.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              {feedbackKind === 'false_negative'
-                ? 'Why should this have been PASSED?'
-                : 'Why should this have been FAILED?'}
-            </label>
-            <Textarea
-              value={feedbackJustification}
-              onChange={(e) => setFeedbackJustification(e.target.value)}
-              placeholder={feedbackKind === 'false_negative'
-                ? 'e.g. The agent correctly refused to give medical advice and referred the user to a doctor — the evaluator wrongly counted this as failing to answer.'
-                : 'e.g. The agent gave a confident answer that is factually wrong (claimed our office is open on Sunday). The evaluator missed this because the tone sounded helpful.'}
-              rows={6}
-              disabled={feedbackLoading}
-            />
-            <p className="text-xs text-muted-foreground">
-              The text you write here becomes part of the pattern stored for this
-              agent and will be shown to the evaluator GPT on the next test run.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setFeedbackDialogOpen(false)}
-              disabled={feedbackLoading}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={submitFalseFeedback}
-              disabled={feedbackLoading || !feedbackJustification.trim()}
-              className="gap-2"
-            >
-              {feedbackLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                <>
-                  {feedbackKind === 'false_negative' ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4" />
-                  )}
-                  Save Feedback
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Item 3: AI Re-evaluation Dialog */}
-      <Dialog open={reevaluateDialogOpen} onOpenChange={setReevaluateDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 text-blue-600" />
-              Request AI Re-evaluation
-            </DialogTitle>
-            <DialogDescription>
-              The AI will re-analyze the stored transcript using your feedback as
-              authoritative steering. If the verdict flips from FAIL to PASS, the
-              pattern is also saved so future runs evaluate similar responses
-              correctly.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Why do you disagree with the current verdict?
-            </label>
-            <Textarea
-              value={reevaluateFeedback}
-              onChange={(e) => setReevaluateFeedback(e.target.value)}
-              placeholder="e.g. The agent correctly refused to disclose PII, this should be PASS not FAIL — or — The scenario was actually addressed in turn 5 but the analyzer missed it."
-              rows={5}
-              disabled={reevaluateLoading}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setReevaluateDialogOpen(false)}
-              disabled={reevaluateLoading}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={submitReevaluation}
-              disabled={reevaluateLoading || !reevaluateFeedback.trim()}
-              className="gap-2"
-            >
-              {reevaluateLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Re-evaluating…
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  Re-evaluate
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Improve Test Agent: propose + dry-run + apply prompt amendment */}
-      <Dialog open={amendDialogOpen} onOpenChange={(open) => { if (!amendLoading && !amendApplying) setAmendDialogOpen(open); }}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-purple-600" />
-              Improve Test Agent
-            </DialogTitle>
-            <DialogDescription>
-              Describe what the agent should have done. We&apos;ll generate the smallest
-              edit to its system prompt, dry-run it against this failing scenario plus
-              two recent siblings, and let you apply only if it fixes the failure
-              without regressing the others.
-            </DialogDescription>
-          </DialogHeader>
-
-          {!amendProposal && (
-            <div className="space-y-3">
-              <label className="text-sm font-medium">
-                What should the agent do differently?
-              </label>
-              <Textarea
-                value={amendFeedback}
-                onChange={(e) => setAmendFeedback(e.target.value)}
-                placeholder="e.g. When the caller asks for an immediate human, the agent should transfer in one step, not pitch the chatbot first."
-                rows={5}
-                disabled={amendLoading}
-              />
-            </div>
-          )}
-
-          {amendProposal && (
-            <div className="space-y-4">
-              <div className={`p-3 rounded border text-sm ${
-                amendProposal.status === 'verified'
-                  ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
-                  : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800'
-              }`}>
-                <div className="font-medium">
-                  {amendProposal.status === 'verified'
-                    ? `Verified: fixes the failing case, 0 regressions across ${amendProposal.verificationRuns.length - 1} other scenario(s).`
-                    : `Proposed (not auto-verified). Fixed failing case: ${amendProposal.fixedFailingCase ? 'yes' : 'no'} \u00b7 Regressions: ${amendProposal.regressionCount}`}
-                </div>
-                <div className="text-xs mt-1 opacity-80">{amendProposal.amendmentSummary}</div>
-              </div>
-
-              <div>
-                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">
-                  Dry-run results
-                </div>
-                <div className="space-y-2">
-                  {amendProposal.verificationRuns.map((run, idx) => (
-                    <div
-                      key={idx}
-                      className={`border rounded p-2 text-xs ${
-                        run.is_failing_case ? 'border-purple-300 bg-purple-50/40 dark:bg-purple-900/10' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 font-medium mb-1">
-                        {run.is_failing_case && (
-                          <Badge variant="outline" className="text-[10px] gap-1">
-                            <AlertTriangle className="h-3 w-3" /> failing case
-                          </Badge>
-                        )}
-                        {run.improved && (
-                          <Badge className="text-[10px] bg-green-600">improved</Badge>
-                        )}
-                        {run.regressed && (
-                          <Badge variant="destructive" className="text-[10px]">regressed</Badge>
-                        )}
-                        {!run.improved && !run.regressed && (
-                          <Badge variant="secondary" className="text-[10px]">unchanged</Badge>
-                        )}
-                        <span className="truncate">{run.scenario.slice(0, 120)}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
-                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
-                            Original {run.original_passed ? 'PASS' : 'FAIL'}
-                          </div>
-                          <div className="line-clamp-3">{run.simulated_response_original || '(empty)'}</div>
-                        </div>
-                        <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/50">
-                          <div className="text-[10px] uppercase text-muted-foreground mb-1">
-                            Amended {run.amended_passed ? 'PASS' : 'FAIL'}
-                          </div>
-                          <div className="line-clamp-3">{run.simulated_response_amended || '(empty)'}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <details className="border rounded p-2 text-xs">
-                <summary className="cursor-pointer font-medium">Proposed system_prompt (full)</summary>
-                <pre className="whitespace-pre-wrap mt-2 max-h-60 overflow-auto">
-                  {amendProposal.amendedPrompt}
-                </pre>
-              </details>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            {!amendProposal && (
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={() => setAmendDialogOpen(false)}
-                  disabled={amendLoading}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={requestAmendment}
-                  disabled={amendLoading || !amendFeedback.trim()}
-                  className="gap-2"
-                >
-                  {amendLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Generating & dry-running…
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 className="h-4 w-4" />
-                      Propose & Dry-run
-                    </>
-                  )}
-                </Button>
-              </>
-            )}
-            {amendProposal && (
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={rejectAmendment}
-                  disabled={amendApplying}
-                >
-                  Reject
-                </Button>
-                <Button
-                  onClick={applyAmendment}
-                  disabled={amendApplying}
-                  className="gap-2"
-                  variant={amendProposal.status === 'verified' ? 'default' : 'destructive'}
-                >
-                  {amendApplying ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Applying…
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 className="h-4 w-4" />
-                      {amendProposal.status === 'verified' ? 'Apply to Agent' : 'Apply Anyway'}
-                    </>
-                  )}
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {feedbackDialogs}
     </div>
   );
 }
