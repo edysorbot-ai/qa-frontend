@@ -318,6 +318,10 @@ export default function AgentDetailPage() {
   const [generatedTestCases, setGeneratedTestCases] = useState<TestCase[]>([]);
   const [selectedGeneratedTestCases, setSelectedGeneratedTestCases] = useState<Set<string>>(new Set());
   const [isAddingSelectedTestCases, setIsAddingSelectedTestCases] = useState(false);
+  // Tracks which generation path produced the current preview so the save
+  // step can stamp the correct created_via ('ai_generated' vs 'archetype').
+  const [generationMode, setGenerationMode] = useState<'ai' | 'archetype'>('ai');
+  const [isGeneratingFromArchetypes, setIsGeneratingFromArchetypes] = useState(false);
 
   // CSV Import state
   const [showCSVImportDialog, setShowCSVImportDialog] = useState(false);
@@ -742,6 +746,7 @@ export default function AgentDetailPage() {
         setGeneratedTestCases(generatedCases);
         // Select all by default
         setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
+        setGenerationMode('ai');
         setShowGeneratedTestCasesDialog(true);
       } else {
         const errorData = await response.json();
@@ -752,6 +757,54 @@ export default function AgentDetailPage() {
       setError("Failed to generate test cases");
     } finally {
       setIsGeneratingTests(false);
+    }
+  };
+
+  // Generate test cases from the pre-defined archetype catalog.
+  // Layer 1 (categories, scoring, persona) is fixed in code; Layer 2 (slot
+  // values) is filled by the LLM. Same preview dialog as the AI path.
+  const handleGenerateFromArchetypes = async () => {
+    if (!agent) return;
+
+    setIsGeneratingFromArchetypes(true);
+    setError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(api.endpoints.agents.generateTestCasesFromArchetypes(agentId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ preview: true }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const generatedCases = (data.testCases || []).map((tc: any, index: number) => ({
+          id: tc.id || `temp-arch-${index}-${Date.now()}`,
+          name: tc.name,
+          scenario: tc.scenario,
+          category: tc.category || 'General',
+          expectedOutcome: tc.expected_behavior || tc.expectedOutcome || '',
+          priority: tc.priority || 'medium',
+        }));
+        setGeneratedTestCases(generatedCases);
+        setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
+        setGenerationMode('archetype');
+        setShowGeneratedTestCasesDialog(true);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to generate archetype test cases");
+      }
+    } catch (error) {
+      console.error("Error generating archetype test cases:", error);
+      setError("Failed to generate archetype test cases");
+    } finally {
+      setIsGeneratingFromArchetypes(false);
     }
   };
 
@@ -804,6 +857,10 @@ export default function AgentDetailPage() {
             category: tc.category,
             expectedOutcome: tc.expectedOutcome,
             priority: tc.priority,
+            // Stamp the origin so the backend can apply the right gold gate.
+            // Archetype-generated cases get the soft gate (deterministic
+            // skeleton + filled slots already imply a strong rubric).
+            ...(generationMode === 'archetype' ? { created_via: 'archetype', gold_gate: 'soft' } : {}),
           }))
         }),
       });
@@ -2640,7 +2697,7 @@ export default function AgentDetailPage() {
         {/* Test Cases Tab */}
         <TabsContent value="testcases" className="space-y-4">
           {/* Generate Test Cases Card - Show when no saved test cases */}
-          {savedTestCases.length === 0 && !isGeneratingTests && (
+          {savedTestCases.length === 0 && !isGeneratingTests && !isGeneratingFromArchetypes && (
             <Card>
               <CardHeader>
                 <CardTitle>Generate Test Cases</CardTitle>
@@ -2657,10 +2714,10 @@ export default function AgentDetailPage() {
                   </p>
                   
                   <div className="w-full max-w-md space-y-4">
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2">
                       <Button 
                         onClick={handleGenerateTestCases} 
-                        disabled={isGeneratingTests || !agent?.prompt}
+                        disabled={isGeneratingTests || isGeneratingFromArchetypes || !agent?.prompt}
                         className="flex-1"
                       >
                         {isGeneratingTests ? (
@@ -2671,10 +2728,29 @@ export default function AgentDetailPage() {
                         ) : (
                           <>
                             <Sparkles className="mr-2 h-4 w-4" />
-                            Generate Test Cases
+                            Generate Test Cases (AI)
                           </>
                         )}
                       </Button>
+                      <Button
+                        onClick={handleGenerateFromArchetypes}
+                        disabled={isGeneratingTests || isGeneratingFromArchetypes || !agent?.prompt}
+                        variant="outline"
+                        className="flex-1"
+                        title="Use the pre-defined archetype catalog (deterministic categories, LLM only fills domain slots)."
+                      >
+                        {isGeneratingFromArchetypes ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Generating from archetypes...
+                          </>
+                        ) : (
+                          <>Generate from Archetypes</>
+                        )}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground text-center">
+                        AI = open-ended generation. Archetypes = fixed test types (interruption, silence, change-of-mind, OOS, &hellip;) with LLM-filled context only.
+                      </p>
                     </div>
                     
                     {!agent?.prompt && (
@@ -2697,6 +2773,21 @@ export default function AgentDetailPage() {
                   <h3 className="text-lg font-medium mb-2">Generating Test Cases...</h3>
                   <p className="text-muted-foreground">
                     AI is analyzing your agent and creating comprehensive test cases. This may take a moment.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Archetype-generation indicator */}
+          {isGeneratingFromArchetypes && (
+            <Card>
+              <CardContent className="py-12">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-12 w-12 text-primary mb-4 animate-spin" />
+                  <h3 className="text-lg font-medium mb-2">Generating from Archetypes...</h3>
+                  <p className="text-muted-foreground">
+                    Using the pre-defined archetype catalog. The LLM is only filling in domain-specific context.
                   </p>
                 </div>
               </CardContent>
@@ -2735,11 +2826,22 @@ export default function AgentDetailPage() {
                       <Plus className="mr-2 h-4 w-4" />
                       Add Test Case
                     </Button>
-                    <Button variant="outline" onClick={handleGenerateTestCases} disabled={isGeneratingTests}>
+                    <Button variant="outline" onClick={handleGenerateTestCases} disabled={isGeneratingTests || isGeneratingFromArchetypes}>
                       {isGeneratingTests && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       )}
-                      Generate More
+                      Generate More (AI)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleGenerateFromArchetypes}
+                      disabled={isGeneratingTests || isGeneratingFromArchetypes}
+                      title="Pre-defined archetype catalog: deterministic test categories with LLM-filled context only."
+                    >
+                      {isGeneratingFromArchetypes && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      From Archetypes
                     </Button>
                     <Button
                       variant="outline"
