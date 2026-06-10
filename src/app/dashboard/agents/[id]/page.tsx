@@ -326,6 +326,22 @@ export default function AgentDetailPage() {
   const [generationMode, setGenerationMode] = useState<'ai' | 'archetype'>('ai');
   const [isGeneratingFromArchetypes, setIsGeneratingFromArchetypes] = useState(false);
 
+  // Archetype picker — opens before generation so the user can pick which
+  // archetype categories they want. Cases for security archetypes get routed
+  // to the Security tab on save (security_test flag is on the archetype).
+  const [showArchetypePicker, setShowArchetypePicker] = useState(false);
+  const [archetypeCatalog, setArchetypeCatalog] = useState<Array<{
+    id: string;
+    label: string;
+    category: string;
+    key_topic?: string;
+    priority?: string;
+    persona_type?: string;
+    is_security_test?: boolean;
+  }>>([]);
+  const [isLoadingArchetypes, setIsLoadingArchetypes] = useState(false);
+  const [selectedArchetypeIds, setSelectedArchetypeIds] = useState<Set<string>>(new Set());
+
   // CSV Import state
   const [showCSVImportDialog, setShowCSVImportDialog] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -797,12 +813,46 @@ export default function AgentDetailPage() {
     }
   };
 
-  // Generate test cases from the pre-defined archetype catalog.
-  // Layer 1 (categories, scoring, persona) is fixed in code; Layer 2 (slot
-  // values) is filled by the LLM. Same preview dialog as the AI path.
+  // Open the archetype picker. Fetches the catalog on first open and
+  // preselects all non-security archetypes by default.
   const handleGenerateFromArchetypes = async () => {
     if (!agent) return;
+    setError(null);
+    setShowArchetypePicker(true);
+    if (archetypeCatalog.length > 0) return;
+    setIsLoadingArchetypes(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(api.endpoints.agents.listArchetypes(agentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list = (data.archetypes || []) as Array<any>;
+        setArchetypeCatalog(list);
+        // Preselect non-security archetypes by default.
+        setSelectedArchetypeIds(new Set(list.filter(a => !a.is_security_test).map(a => a.id)));
+      } else {
+        setError("Failed to load archetype catalog");
+      }
+    } catch (e) {
+      console.error("Error loading archetypes:", e);
+      setError("Failed to load archetype catalog");
+    } finally {
+      setIsLoadingArchetypes(false);
+    }
+  };
 
+  // Confirm picker → call generator with the selected subset and open the
+  // existing preview dialog (same flow as the AI generator).
+  const runArchetypeGeneration = async () => {
+    if (!agent) return;
+    if (selectedArchetypeIds.size === 0) {
+      setError("Pick at least one archetype category to generate.");
+      return;
+    }
+    setShowArchetypePicker(false);
     setIsGeneratingFromArchetypes(true);
     setError(null);
 
@@ -816,7 +866,10 @@ export default function AgentDetailPage() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ preview: true }),
+        body: JSON.stringify({
+          preview: true,
+          archetypeIds: Array.from(selectedArchetypeIds),
+        }),
       });
 
       if (response.ok) {
@@ -3708,6 +3761,154 @@ export default function AgentDetailPage() {
             >
               {isImportingCSV && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Import {csvPreview.length > 0 ? `${csvPreview.length} Test Case${csvPreview.length !== 1 ? "s" : ""}` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archetype Picker Dialog — pick which predefined categories to generate */}
+      <Dialog open={showArchetypePicker} onOpenChange={setShowArchetypePicker}>
+        <DialogContent className="sm:max-w-[640px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-5 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />
+              Pick Archetype Categories
+            </DialogTitle>
+            <DialogDescription>
+              These are the pre-defined test categories. Pick the ones you want — we&apos;ll
+              generate one test case per selected archetype, with the LLM only filling in
+              domain-specific context. Security archetypes are routed to the Security tab.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="px-6 py-3 border-b flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">
+              {selectedArchetypeIds.size} of {archetypeCatalog.length} selected
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setSelectedArchetypeIds(new Set(archetypeCatalog.filter(a => !a.is_security_test).map(a => a.id)))}
+              >
+                Select non-security
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setSelectedArchetypeIds(new Set(archetypeCatalog.map(a => a.id)))}
+              >
+                Select all
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setSelectedArchetypeIds(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {isLoadingArchetypes ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : archetypeCatalog.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No archetypes available.</p>
+            ) : (
+              (() => {
+                // Group by category for a cleaner picker.
+                const groups: Record<string, typeof archetypeCatalog> = {};
+                archetypeCatalog.forEach(a => {
+                  const key = a.is_security_test ? `Security · ${a.category}` : a.category;
+                  if (!groups[key]) groups[key] = [];
+                  groups[key].push(a);
+                });
+                return Object.entries(groups).map(([cat, arches]) => {
+                  const allIds = arches.map(a => a.id);
+                  const allSelected = allIds.every(id => selectedArchetypeIds.has(id));
+                  const toggleGroup = () => {
+                    setSelectedArchetypeIds(prev => {
+                      const next = new Set(prev);
+                      if (allSelected) {
+                        allIds.forEach(id => next.delete(id));
+                      } else {
+                        allIds.forEach(id => next.add(id));
+                      }
+                      return next;
+                    });
+                  };
+                  return (
+                    <div key={cat} className="mb-5">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-semibold">{cat}</h4>
+                          <Badge variant="outline" className="text-[10px]">
+                            {arches.length}
+                          </Badge>
+                        </div>
+                        <button
+                          onClick={toggleGroup}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          {allSelected ? "Deselect group" : "Select group"}
+                        </button>
+                      </div>
+                      <div className="space-y-1.5">
+                        {arches.map(a => {
+                          const checked = selectedArchetypeIds.has(a.id);
+                          return (
+                            <label
+                              key={a.id}
+                              className={`flex items-start gap-2 rounded border p-2 cursor-pointer text-sm transition
+                                ${checked ? 'border-primary bg-primary/5' : 'hover:border-primary/40'}`}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(c) => {
+                                  setSelectedArchetypeIds(prev => {
+                                    const next = new Set(prev);
+                                    if (c) next.add(a.id); else next.delete(a.id);
+                                    return next;
+                                  });
+                                }}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm">{a.label}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5">
+                                  {a.key_topic && <Badge variant="secondary" className="text-[10px]">{a.key_topic}</Badge>}
+                                  {a.priority && <Badge variant="outline" className="text-[10px]">{a.priority}</Badge>}
+                                  {a.persona_type && <span>persona: {a.persona_type}</span>}
+                                  {a.is_security_test && <Badge className="bg-amber-100 text-amber-800 text-[10px]">→ Security tab</Badge>}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                });
+              })()
+            )}
+          </div>
+
+          <DialogFooter className="px-6 py-3 border-t">
+            <Button variant="outline" onClick={() => setShowArchetypePicker(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={runArchetypeGeneration}
+              disabled={selectedArchetypeIds.size === 0 || isGeneratingFromArchetypes}
+            >
+              {isGeneratingFromArchetypes && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirm & Generate ({selectedArchetypeIds.size})
             </Button>
           </DialogFooter>
         </DialogContent>
