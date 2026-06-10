@@ -126,6 +126,27 @@ interface TestResultDetail {
     priority: "high" | "medium" | "low";
   }>;
   
+  // Real evaluator outputs (t01/t02)
+  factualAssessment?: {
+    hasFactualClaims: boolean;
+    suspectedHallucinations: string[];
+    confidence: number;
+    hallucinationDetected: boolean;
+  } | null;
+  sourceAttribution?: {
+    overallSource: "agent_prompt" | "rag_knowledge" | "hallucination" | "external_internet" | "none";
+    perClaim: Array<{ claim: string; source: string }>;
+    rationale: string;
+  } | null;
+  toneStyle?: {
+    tone: string;
+    brandAlignment: number;
+    conciseness: number;
+    lengthProfile?: "terse" | "balanced" | "verbose";
+    personality?: string;
+    notes?: string;
+  } | null;
+
   // Error
   errorMessage: string | null;
 }
@@ -801,6 +822,113 @@ export default function TestResultDetailPage() {
                 <MetricBar label="Empathy" value={result.advancedMetrics.empathy} />
               </div>
             </div>
+
+            {/* Factual Correctness, Source Attribution & Tone/Style (t01/t02) */}
+            {(result.factualAssessment || result.sourceAttribution || result.toneStyle) && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border p-6 md:col-span-2">
+                <h2 className="text-lg font-semibold mb-4">Factual Correctness, Source &amp; Tone</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Factual correctness */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-2">Factual Correctness</h3>
+                    {result.factualAssessment ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Confidence</span>
+                          <span className="font-medium">{result.factualAssessment.confidence}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Hallucination</span>
+                          <span className={`font-medium ${result.factualAssessment.hallucinationDetected ? "text-red-600" : "text-green-600"}`}>
+                            {result.factualAssessment.hallucinationDetected ? "Detected" : "None"}
+                          </span>
+                        </div>
+                        {result.factualAssessment.suspectedHallucinations?.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {result.factualAssessment.suspectedHallucinations.map((h, i) => (
+                              <li key={i} className="text-xs text-red-600 flex items-start gap-1">
+                                <span>•</span><span>{h}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Not evaluated.</p>
+                    )}
+                  </div>
+
+                  {/* Source attribution */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-2">Answer Source</h3>
+                    {result.sourceAttribution ? (
+                      <div className="space-y-2 text-sm">
+                        <span
+                          className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                            {
+                              agent_prompt: "bg-blue-100 text-blue-800",
+                              rag_knowledge: "bg-green-100 text-green-800",
+                              hallucination: "bg-red-100 text-red-800",
+                              external_internet: "bg-amber-100 text-amber-800",
+                              none: "bg-gray-100 text-gray-700",
+                            }[result.sourceAttribution.overallSource] || "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {result.sourceAttribution.overallSource.replace(/_/g, " ")}
+                        </span>
+                        {result.sourceAttribution.rationale && (
+                          <p className="text-xs text-muted-foreground">{result.sourceAttribution.rationale}</p>
+                        )}
+                        {result.sourceAttribution.perClaim?.length > 0 && (
+                          <ul className="mt-1 space-y-1">
+                            {result.sourceAttribution.perClaim.map((c, i) => (
+                              <li key={i} className="text-xs flex items-start gap-1">
+                                <span className="font-medium whitespace-nowrap">[{c.source.replace(/_/g, " ")}]</span>
+                                <span className="text-muted-foreground">{c.claim}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Not evaluated.</p>
+                    )}
+                  </div>
+
+                  {/* Tone & style */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-2">Tone &amp; Style</h3>
+                    {result.toneStyle ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Tone</span>
+                          <span className="font-medium capitalize">{result.toneStyle.tone}</span>
+                        </div>
+                        {result.toneStyle.personality && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Personality</span>
+                            <span className="font-medium">{result.toneStyle.personality}</span>
+                          </div>
+                        )}
+                        {result.toneStyle.lengthProfile && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Length</span>
+                            <span className="font-medium capitalize">{result.toneStyle.lengthProfile}</span>
+                          </div>
+                        )}
+                        <MetricBar label="Brand Alignment" value={result.toneStyle.brandAlignment} />
+                        <MetricBar label="Conciseness" value={result.toneStyle.conciseness} />
+                        {result.toneStyle.notes && (
+                          <p className="text-xs text-muted-foreground">{result.toneStyle.notes}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Not evaluated.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* AI Evaluation Summary */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border p-6 md:col-span-2">

@@ -66,6 +66,7 @@ import {
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { ModernAudioPlayer } from "@/components/ui/modern-audio-player";
+import { LifecycleGateCard } from "@/components/test-runs/lifecycle-gate-card";
 
 interface TestRunStatus {
   id: string;
@@ -2880,6 +2881,9 @@ export default function TestRunDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* t10: stage-aware lifecycle gate verdict + promotion */}
+      <LifecycleGateCard testRunId={testRunId} />
 
       {/* View Content based on viewMode */}
       {viewMode === "normal" &&
