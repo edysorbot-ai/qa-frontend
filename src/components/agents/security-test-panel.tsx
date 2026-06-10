@@ -24,6 +24,7 @@ import {
   Loader2,
   Trash2,
   Sparkles,
+  Pencil,
 } from "lucide-react";
 
 interface SecurityTestCase {
@@ -153,6 +154,7 @@ export function SecurityTestPanel({
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<SecurityTestCase, "id">>({
     name: "",
@@ -243,6 +245,67 @@ export function SecurityTestPanel({
     }
   };
 
+  const resetForm = () => {
+    setForm({
+      name: "",
+      scenario: "",
+      category: "Prompt Injection",
+      expectedOutcome: "",
+      priority: "high",
+      security_test_type: "prompt_injection",
+    });
+  };
+
+  const closeForm = () => {
+    setShowAdd(false);
+    setEditingId(null);
+    resetForm();
+  };
+
+  const handleEdit = (tc: SecurityTestCase) => {
+    setEditingId(tc.id);
+    setForm({
+      name: tc.name,
+      scenario: tc.scenario,
+      category: tc.category,
+      expectedOutcome: tc.expectedOutcome,
+      priority: tc.priority,
+      security_test_type: tc.security_test_type || "prompt_injection",
+    });
+    setShowAdd(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId || !form.name || !form.scenario || !form.expectedOutcome) return;
+    setError(null);
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetch(api.endpoints.testCases.update(editingId), {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: form.name,
+        scenario: form.scenario,
+        expected_behavior: form.expectedOutcome,
+        category: TYPE_LABEL[form.security_test_type || ""] || form.category,
+        priority: form.priority,
+        is_security_test: true,
+        security_test_type: form.security_test_type,
+      }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setError(e.message || e.error || "Failed to update security test case");
+      return;
+    }
+    closeForm();
+    await fetchCases();
+    onChanged?.();
+  };
+
   const handleAdd = async () => {
     if (!form.name || !form.scenario || !form.expectedOutcome) return;
     setError(null);
@@ -250,15 +313,7 @@ export function SecurityTestPanel({
       { ...form, category: TYPE_LABEL[form.security_test_type || ""] || form.category },
     ]);
     if (ok) {
-      setShowAdd(false);
-      setForm({
-        name: "",
-        scenario: "",
-        category: "Prompt Injection",
-        expectedOutcome: "",
-        priority: "high",
-        security_test_type: "prompt_injection",
-      });
+      closeForm();
       await fetchCases();
       onChanged?.();
     }
@@ -314,7 +369,19 @@ export function SecurityTestPanel({
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAdd((s) => !s)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (showAdd) {
+                closeForm();
+              } else {
+                setEditingId(null);
+                resetForm();
+                setShowAdd(true);
+              }
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Add Security Test
           </Button>
@@ -330,7 +397,9 @@ export function SecurityTestPanel({
 
         {showAdd && (
           <div className="border-2 border-dashed border-primary/30 rounded-lg p-5 bg-primary/5 space-y-4">
-            <h3 className="font-semibold text-primary">Add Security Test Case</h3>
+            <h3 className="font-semibold text-primary">
+              {editingId ? "Edit Security Test Case" : "Add Security Test Case"}
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Name *</Label>
@@ -406,13 +475,22 @@ export function SecurityTestPanel({
             </div>
             <div className="flex gap-2 pt-2">
               <Button
-                onClick={handleAdd}
+                onClick={editingId ? handleUpdate : handleAdd}
                 disabled={!form.name || !form.scenario || !form.expectedOutcome}
               >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Security Test
+                {editingId ? (
+                  <>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Save Changes
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Security Test
+                  </>
+                )}
               </Button>
-              <Button variant="outline" onClick={() => setShowAdd(false)}>
+              <Button variant="outline" onClick={closeForm}>
                 Cancel
               </Button>
             </div>
@@ -447,7 +525,7 @@ export function SecurityTestPanel({
                   <th className="px-4 py-2 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-20">
                     Priority
                   </th>
-                  <th className="px-4 py-2 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-16" />
+                  <th className="px-4 py-2 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-24" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -479,14 +557,24 @@ export function SecurityTestPanel({
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-red-500"
-                        onClick={() => handleDelete(tc.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          onClick={() => handleEdit(tc)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                          onClick={() => handleDelete(tc.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

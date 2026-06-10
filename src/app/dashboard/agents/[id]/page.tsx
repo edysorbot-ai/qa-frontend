@@ -749,6 +749,8 @@ export default function AgentDetailPage() {
           category: tc.category || 'General',
           expectedOutcome: tc.expected_behavior || tc.expectedOutcome || '',
           priority: tc.priority || 'medium',
+          is_security_test: tc.is_security_test || tc.category === 'Security' || false,
+          security_test_type: tc.security_test_type || undefined,
         }));
         setGeneratedTestCases(generatedCases);
         // Select all by default
@@ -798,6 +800,8 @@ export default function AgentDetailPage() {
           category: tc.category || 'General',
           expectedOutcome: tc.expected_behavior || tc.expectedOutcome || '',
           priority: tc.priority || 'medium',
+          is_security_test: tc.is_security_test || tc.category === 'Security' || false,
+          security_test_type: tc.security_test_type || undefined,
         }));
         setGeneratedTestCases(generatedCases);
         setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
@@ -864,6 +868,10 @@ export default function AgentDetailPage() {
             category: tc.category,
             expectedOutcome: tc.expectedOutcome,
             priority: tc.priority,
+            // Security cases route to the Security tab (filtered out of the
+            // normal Test Cases list), so preserve their flags on save.
+            is_security_test: tc.is_security_test || tc.category === 'Security' || false,
+            security_test_type: tc.security_test_type,
             // Stamp the origin so the backend can apply the right gold gate.
             // Archetype-generated cases get the soft gate (deterministic
             // skeleton + filled slots already imply a strong rubric).
@@ -881,11 +889,15 @@ export default function AgentDetailPage() {
           category: tc.category || 'General',
           expectedOutcome: tc.expected_behavior || '',
           priority: tc.priority || 'medium',
+          is_security_test: tc.is_security_test || tc.category === 'Security' || false,
+          security_test_type: tc.security_test_type || undefined,
         }));
         setSavedTestCases([...savedTestCases, ...newCases]);
         setShowGeneratedTestCasesDialog(false);
         setGeneratedTestCases([]);
         setSelectedGeneratedTestCases(new Set());
+        // Refresh so newly-saved security cases appear in the Security tab.
+        fetchTestCases();
       } else {
         const errorData = await response.json();
         setError(errorData.message || errorData.error || "Failed to add test cases");
@@ -3707,6 +3719,11 @@ export default function AgentDetailPage() {
                       <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
                         {tc.category}
                       </span>
+                      {tc.is_security_test && (
+                        <span className="ml-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-1 rounded">
+                          → Security tab
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-4">
                       <span className={`text-xs font-medium px-2 py-1 rounded ${
