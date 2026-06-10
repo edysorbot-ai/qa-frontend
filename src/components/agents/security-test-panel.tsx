@@ -153,6 +153,7 @@ export function SecurityTestPanel({
   const [cases, setCases] = useState<SecurityTestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +227,69 @@ export function SecurityTestPanel({
       return false;
     }
     return true;
+  };
+
+  /**
+   * Generate adversarial / security test cases via the AI generator
+   * (same endpoint as the agent's "Generate Test Cases", but we keep ONLY the
+   * security ones — the normal Test Cases tab filters them out).
+   */
+  const handleGenerateSecurity = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setGenerating(false);
+        return;
+      }
+      const res = await fetch(api.endpoints.agents.generateTestCases(agentId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ preview: true }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setError(e.message || e.error || "Failed to generate security test cases");
+        setGenerating(false);
+        return;
+      }
+      const data = await res.json();
+      const securityOnly = (data.testCases || [])
+        .filter((tc: any) => tc.is_security_test || tc.category === "Security")
+        .map((tc: any) => ({
+          name: tc.name,
+          scenario: tc.scenario,
+          category: tc.category || "Security",
+          expectedOutcome: tc.expected_behavior || tc.expectedOutcome || "",
+          priority: (tc.priority || "high") as "high" | "medium" | "low",
+          security_test_type: tc.security_test_type || "prompt_injection",
+        }));
+      if (securityOnly.length === 0) {
+        setError("No security tests were generated for this agent — try the Starter Suite or add manually.");
+        setGenerating(false);
+        return;
+      }
+      const existingNames = new Set(cases.map((c) => c.name));
+      const toAdd = securityOnly.filter((t: { name: string }) => !existingNames.has(t.name));
+      if (toAdd.length === 0) {
+        setGenerating(false);
+        return;
+      }
+      const ok = await postCases(toAdd);
+      setGenerating(false);
+      if (ok) {
+        await fetchCases();
+        onChanged?.();
+      }
+    } catch (e) {
+      console.error("Error generating security test cases:", e);
+      setError("Failed to generate security test cases");
+      setGenerating(false);
+    }
   };
 
   const handleSeed = async () => {
@@ -392,6 +456,19 @@ export function SecurityTestPanel({
               <Sparkles className="mr-2 h-4 w-4" />
             )}
             Add Starter Security Suite
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleGenerateSecurity}
+            disabled={generating}
+          >
+            {generating ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            Generate Security Tests
           </Button>
         </div>
 

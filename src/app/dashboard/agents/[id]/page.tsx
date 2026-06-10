@@ -742,7 +742,7 @@ export default function AgentDetailPage() {
       if (response.ok) {
         const data = await response.json();
         // Store generated test cases for selection
-        const generatedCases = (data.testCases || []).map((tc: any, index: number) => ({
+        const allCases = (data.testCases || []).map((tc: any, index: number) => ({
           id: tc.id || `temp-${index}-${Date.now()}`, // Temp ID for selection
           name: tc.name,
           scenario: tc.scenario,
@@ -752,6 +752,9 @@ export default function AgentDetailPage() {
           is_security_test: tc.is_security_test || tc.category === 'Security' || false,
           security_test_type: tc.security_test_type || undefined,
         }));
+        // Security cases belong in the Security tab, not the normal Test Cases
+        // tab — exclude them from this generate dialog entirely.
+        const generatedCases = allCases.filter((tc: TestCase) => !tc.is_security_test);
         setGeneratedTestCases(generatedCases);
         // Select all by default
         setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
@@ -793,7 +796,7 @@ export default function AgentDetailPage() {
 
       if (response.ok) {
         const data = await response.json();
-        const generatedCases = (data.testCases || []).map((tc: any, index: number) => ({
+        const allCases = (data.testCases || []).map((tc: any, index: number) => ({
           id: tc.id || `temp-arch-${index}-${Date.now()}`,
           name: tc.name,
           scenario: tc.scenario,
@@ -803,6 +806,9 @@ export default function AgentDetailPage() {
           is_security_test: tc.is_security_test || tc.category === 'Security' || false,
           security_test_type: tc.security_test_type || undefined,
         }));
+        // Security cases belong in the Security tab, not the normal Test Cases
+        // tab — exclude them from this generate dialog entirely.
+        const generatedCases = allCases.filter((tc: TestCase) => !tc.is_security_test);
         setGeneratedTestCases(generatedCases);
         setSelectedGeneratedTestCases(new Set(generatedCases.map((tc: TestCase) => tc.id)));
         setGenerationMode('archetype');
@@ -3719,11 +3725,6 @@ export default function AgentDetailPage() {
                       <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
                         {tc.category}
                       </span>
-                      {tc.is_security_test && (
-                        <span className="ml-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-1 rounded">
-                          → Security tab
-                        </span>
-                      )}
                     </td>
                     <td className="px-4 py-4">
                       <span className={`text-xs font-medium px-2 py-1 rounded ${
