@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Wrench,
   Shield,
+  Clock,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import Link from "next/link";
@@ -40,6 +41,14 @@ interface ConversationTurn {
   content: string;
   timestamp: string;
   durationMs?: number;
+  latency_breakdown?: {
+    sttMs?: number;
+    llmMs?: number;
+    toolMs?: number;
+    ttsMs?: number;
+    otherMs?: number;
+    source?: "provider" | "heuristic";
+  };
 }
 
 interface EvaluationIssue {
@@ -72,6 +81,25 @@ interface TestResultDetail {
   durationMs: number;
   durationFormatted: string;
   latencyMs: number;
+  responseLatency?: {
+    avgMs: number;
+    maxMs: number;
+    minMs: number;
+    perTurn: Array<{
+      turn: number;
+      responseLatencyMs: number;
+      breakdown?: {
+        sttMs?: number;
+        llmMs?: number;
+        toolMs?: number;
+        ttsMs?: number;
+        otherMs?: number;
+        source?: "provider" | "heuristic";
+      } | null;
+    }>;
+    totals: { sttMs: number; llmMs: number; toolMs: number; ttsMs: number; otherMs: number };
+    source: "provider" | "heuristic";
+  } | null;
   startedAt: string;
   completedAt: string;
   
@@ -666,7 +694,92 @@ export default function TestResultDetailPage() {
             </div>
           )}
 
-          {/* Conversation Transcript */}
+          {/* Response Latency (voice only) — time from caller stops speaking to agent starts */}
+          {result.responseLatency && result.responseLatency.perTurn.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Response Latency
+                </h2>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
+                  {result.responseLatency.source === "provider" ? "provider telemetry" : "estimated breakdown"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Time from when the caller stops speaking until the agent starts responding,
+                measured per turn from the recording.
+              </p>
+
+              <div className="grid grid-cols-3 gap-4 mb-5">
+                <div className="text-center">
+                  <div className="text-2xl font-bold">{result.responseLatency.avgMs}ms</div>
+                  <div className="text-xs text-muted-foreground">Average</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${result.responseLatency.maxMs > 1500 ? "text-red-500" : result.responseLatency.maxMs > 800 ? "text-amber-500" : "text-green-500"}`}>
+                    {result.responseLatency.maxMs}ms
+                  </div>
+                  <div className="text-xs text-muted-foreground">Slowest</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-500">{result.responseLatency.minMs}ms</div>
+                  <div className="text-xs text-muted-foreground">Fastest</div>
+                </div>
+              </div>
+
+              {/* Component breakdown (STT / LLM / Tool / TTS) */}
+              {(() => {
+                const t = result.responseLatency!.totals;
+                const total = (t.sttMs || 0) + (t.llmMs || 0) + (t.toolMs || 0) + (t.ttsMs || 0) + (t.otherMs || 0);
+                if (total <= 0) return null;
+                const parts = [
+                  { label: "Speech-to-Text", ms: t.sttMs || 0, color: "bg-blue-500" },
+                  { label: "LLM (thinking)", ms: t.llmMs || 0, color: "bg-violet-500" },
+                  { label: "Tool calls", ms: t.toolMs || 0, color: "bg-amber-500" },
+                  { label: "Text-to-Speech", ms: t.ttsMs || 0, color: "bg-emerald-500" },
+                  { label: "Other", ms: t.otherMs || 0, color: "bg-gray-400" },
+                ].filter((p) => p.ms > 0);
+                return (
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Where the time goes (all agent turns)</div>
+                    <div className="flex w-full h-3 rounded-full overflow-hidden">
+                      {parts.map((p) => (
+                        <div key={p.label} className={p.color} style={{ width: `${(p.ms / total) * 100}%` }} title={`${p.label}: ${p.ms}ms`} />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                      {parts.map((p) => (
+                        <div key={p.label} className="flex items-center gap-1.5 text-xs">
+                          <span className={`inline-block h-2.5 w-2.5 rounded-sm ${p.color}`} />
+                          <span className="text-muted-foreground">{p.label}</span>
+                          <span className="font-medium">{p.ms}ms ({Math.round((p.ms / total) * 100)}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Per-turn latencies */}
+              {result.responseLatency.perTurn.length > 1 && (
+                <div className="mt-5 pt-4 border-t">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Per agent turn</div>
+                  <div className="flex flex-wrap gap-2">
+                    {result.responseLatency.perTurn.map((p) => (
+                      <span
+                        key={p.turn}
+                        className={`text-xs px-2 py-1 rounded border ${p.responseLatencyMs > 1500 ? "border-red-300 text-red-600" : p.responseLatencyMs > 800 ? "border-amber-300 text-amber-600" : "border-green-300 text-green-600"}`}
+                      >
+                        #{p.turn}: {p.responseLatencyMs}ms
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">

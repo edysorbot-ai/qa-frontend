@@ -38,11 +38,6 @@ import {
   Activity,
   BarChart3,
   Wrench,
-  Gauge,
-  AudioLines,
-  BookOpen,
-  ShieldAlert,
-  Bell,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -72,36 +67,6 @@ const menuItems = [
     title: "Production Monitoring",
     icon: Activity,
     href: "/dashboard/monitoring",
-  },
-  {
-    title: "Latency Lab",
-    icon: Gauge,
-    href: "/dashboard/latency",
-  },
-  {
-    title: "Voice & Language",
-    icon: AudioLines,
-    href: "/dashboard/voice-quality",
-  },
-  {
-    title: "Knowledge Tests",
-    icon: BookOpen,
-    href: "/dashboard/template-tests",
-  },
-  {
-    title: "Recommendations",
-    icon: ShieldAlert,
-    href: "/dashboard/recommendations",
-  },
-  {
-    title: "Operations",
-    icon: Activity,
-    href: "/dashboard/operations",
-  },
-  {
-    title: "Notifications",
-    icon: Bell,
-    href: "/dashboard/notifications",
   },
   {
     title: "Analytics",

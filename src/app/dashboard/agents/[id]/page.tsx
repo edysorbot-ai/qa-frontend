@@ -81,6 +81,7 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import { TestFlowTab, WorkflowExecutionPlan, TestCaseData as WorkflowTestCase } from "@/components/workflow";
 import { ConsistencyTestPanel } from "@/components/consistency-test-panel";
+import { SecurityTestPanel } from "@/components/agents/security-test-panel";
 
 type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom" | "bolna" | "livekit" | "haptik";
 
@@ -144,6 +145,8 @@ interface TestCase {
   expectedOutcome: string;
   priority: "high" | "medium" | "low";
   test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
+  is_security_test?: boolean;
+  security_test_type?: string;
 }
 
 interface DynamicVariable {
@@ -357,8 +360,10 @@ export default function AgentDetailPage() {
   const [isLoadingDocumentContent, setIsLoadingDocumentContent] = useState(false);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
 
-  // Get unique categories from existing test cases
-  const existingCategories = [...new Set(savedTestCases.map(tc => tc.category))].filter(Boolean);
+  // Security tests live only in the Security tab; the Test Cases tab shows normal tests.
+  const normalTestCases = savedTestCases.filter(tc => !tc.is_security_test);
+  // Get unique categories from existing (non-security) test cases
+  const existingCategories = [...new Set(normalTestCases.map(tc => tc.category))].filter(Boolean);
 
   // Fix hydration mismatch with Radix UI components
   useEffect(() => {
@@ -472,6 +477,8 @@ export default function AgentDetailPage() {
           category: tc.category || 'General',
           expectedOutcome: tc.expected_behavior || '',
           priority: tc.priority || 'medium',
+          is_security_test: tc.is_security_test || false,
+          security_test_type: tc.security_test_type,
         }));
         setSavedTestCases(cases);
       }
@@ -2697,7 +2704,7 @@ export default function AgentDetailPage() {
         {/* Test Cases Tab */}
         <TabsContent value="testcases" className="space-y-4">
           {/* Generate Test Cases Card - Show when no saved test cases */}
-          {savedTestCases.length === 0 && !isGeneratingTests && !isGeneratingFromArchetypes && (
+          {normalTestCases.length === 0 && !isGeneratingTests && !isGeneratingFromArchetypes && (
             <Card>
               <CardHeader>
                 <CardTitle>Generate Test Cases</CardTitle>
@@ -2795,14 +2802,14 @@ export default function AgentDetailPage() {
           )}
 
           {/* Saved Test Cases */}
-          {savedTestCases.length > 0 && (
+          {normalTestCases.length > 0 && (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>Test Cases</CardTitle>
                     <CardDescription>
-                      {savedTestCases.length} test case{savedTestCases.length !== 1 ? "s" : ""} for this agent
+                      {normalTestCases.length} test case{normalTestCases.length !== 1 ? "s" : ""} for this agent
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
@@ -3005,6 +3012,7 @@ export default function AgentDetailPage() {
                           // Group test cases by category for rowspan display
                           const categoryGroups = new Map<string, TestCase[]>();
                           savedTestCases.forEach((tc) => {
+                            if (tc.is_security_test) return;
                             const category = tc.category || "General";
                             const group = categoryGroups.get(category) || [];
                             group.push(tc);
@@ -3305,64 +3313,7 @@ export default function AgentDetailPage() {
 
         {/* Security Tab */}
         <TabsContent value="security" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Security Testing
-              </CardTitle>
-              <CardDescription>
-                Security tests are now integrated into the Test Cases workflow
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-6 bg-muted/50 rounded-lg text-center">
-                <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="text-lg font-semibold mb-2">Create Security Test Cases</h3>
-                <p className="text-muted-foreground mb-4">
-                  Security tests for data leakage, prompt injection, PII handling, and more are now 
-                  created as regular test cases with the &quot;Security Test&quot; option enabled.
-                </p>
-                <div className="flex justify-center gap-3">
-                  <Button asChild>
-                    <a href="/dashboard/test-cases">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Security Test Cases
-                    </a>
-                  </Button>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                    <span className="font-medium">Data Leakage</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Test if agent leaks sensitive data across conversations
-                  </p>
-                </div>
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    <span className="font-medium">Prompt Injection</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Test resistance to prompt injection attacks
-                  </p>
-                </div>
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                    <span className="font-medium">PII Handling</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Test proper handling of personal information
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <SecurityTestPanel agentId={agentId} onChanged={fetchTestCases} />
         </TabsContent>
 
         {/* Consistency Tab */}

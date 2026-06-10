@@ -39,7 +39,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard, Shield } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -69,6 +69,8 @@ interface TestCase {
   expectedOutcome: string;
   priority: "high" | "medium" | "low";
   test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
+  is_security_test?: boolean;
+  security_test_type?: string;
 }
 
 interface CallBatch {
@@ -133,6 +135,8 @@ function NewTestRunContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedAgentId = searchParams.get("agent_id");
+  // Security run mode: only security test cases are shown/run; standard runs exclude them.
+  const securityMode = searchParams.get("security") === "1";
   const { processApiResponse } = useSubscriptionError();
 
   // Selection state
@@ -347,7 +351,7 @@ function NewTestRunContent() {
 
       if (testCasesResponse.ok) {
         const data = await testCasesResponse.json();
-        const cases = (data.testCases || []).map((tc: any) => ({
+        const allCases = (data.testCases || []).map((tc: any) => ({
           id: tc.id,
           name: tc.name,
           scenario: tc.scenario,
@@ -355,7 +359,13 @@ function NewTestRunContent() {
           keyTopic: tc.key_topic || tc.category || 'General',
           expectedOutcome: tc.expected_behavior || '',
           priority: tc.priority || 'medium',
+          is_security_test: tc.is_security_test || false,
+          security_test_type: tc.security_test_type,
         }));
+        // Security runs only include security tests; standard runs exclude them.
+        const cases = allCases.filter((tc: TestCase) =>
+          securityMode ? tc.is_security_test : !tc.is_security_test
+        );
         setTestCases(cases);
         // Select all test cases by default
         setSelectedTestCaseIds(new Set(cases.map((tc: TestCase) => tc.id)));
@@ -366,7 +376,7 @@ function NewTestRunContent() {
     } finally {
       setIsLoadingAgentDetails(false);
     }
-  }, [getToken, concurrencyCount]);
+  }, [getToken, concurrencyCount, securityMode]);
 
   // Fetch agent details when selection changes
   useEffect(() => {
@@ -955,9 +965,19 @@ function NewTestRunContent() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Create Test Run</h1>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+            {securityMode ? "Create Security Test Run" : "Create Test Run"}
+            {securityMode && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold px-3 py-1">
+                <Shield className="h-3.5 w-3.5" />
+                Security Run
+              </span>
+            )}
+          </h1>
           <p className="text-muted-foreground">
-            Select an agent and configure your test run
+            {securityMode
+              ? "Running security test cases (prompt injection, jailbreak, data leakage, PII / PCI / PHI) for this agent"
+              : "Select an agent and configure your test run"}
           </p>
         </div>
       </div>
