@@ -39,7 +39,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard, Shield } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard, Shield, Save, RotateCcw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -194,6 +194,21 @@ function NewTestRunContent() {
     provider: string;
   } | null>(null);
   const [showConcurrencyWarning, setShowConcurrencyWarning] = useState(false);
+
+  // Saved batches (per-agent) — listed at top of the page so the user can
+  // reuse a saved batch plan and skip re-batching, plus the post-batching
+  // "Save this batch" flow stores into here.
+  const [savedBatches, setSavedBatches] = useState<Array<{
+    id: string;
+    name: string;
+    batch_data: any[];
+    test_case_ids: string[];
+    created_at: string;
+  }>>([]);
+  const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
+  const [showSaveBatchDialog, setShowSaveBatchDialog] = useState(false);
+  const [saveBatchName, setSaveBatchName] = useState("");
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
 
   // Schedule dialog state
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
@@ -388,6 +403,106 @@ function NewTestRunContent() {
       setSelectedTestCaseIds(new Set());
     }
   }, [selectedAgentId, fetchAgentDetails]);
+
+  // Fetch saved batches whenever the selected agent changes — these are shown
+  // at the top of the page so users can reuse a saved batch plan instead of
+  // re-batching every time.
+  const fetchSavedBatches = useCallback(async () => {
+    if (!selectedAgentId) {
+      setSavedBatches([]);
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(api.endpoints.testExecution.savedBatches(selectedAgentId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedBatches(data.savedBatches || []);
+      }
+    } catch (e) {
+      console.error("[SavedBatches] fetch error:", e);
+    }
+  }, [selectedAgentId, getToken]);
+
+  useEffect(() => {
+    fetchSavedBatches();
+    setActiveSavedBatchId(null);
+  }, [fetchSavedBatches]);
+
+  /**
+   * Load a saved batch plan: select its test cases AND populate callBatches
+   * directly (skipping the re-batching step). The Start Test Run flow then
+   * uses callBatches as-is.
+   */
+  const useSavedBatch = (sb: typeof savedBatches[number]) => {
+    const ids = sb.test_case_ids || [];
+    setSelectedTestCaseIds(new Set(ids));
+    setBatchingEnabled(true);
+    const restored: CallBatch[] = (sb.batch_data || []).map((b: any, idx: number) => ({
+      id: b.id || `saved-${idx}`,
+      name: b.name || `Call ${idx + 1}`,
+      testCases: (b.testCases || []).map((tc: any) => ({
+        id: tc.id,
+        name: tc.name,
+        scenario: tc.scenario,
+        expectedOutcome: tc.expectedOutcome,
+        category: tc.category,
+        keyTopic: tc.keyTopic || tc.category,
+        priority: tc.priority || 'medium',
+        is_security_test: tc.is_security_test || false,
+        test_mode: tc.test_mode,
+      })),
+      estimatedDuration: b.estimatedDuration || `~${(b.testCases?.length || 1) * 30} sec`,
+      reasoning: b.reasoning,
+      conversationFlow: b.conversationFlow,
+      callEndingTestCase: b.callEndingTestCase,
+      confidenceScore: b.confidenceScore,
+      testMode: b.testMode || 'voice',
+      testModeReason: b.testModeReason,
+      estimatedCostSavings: b.estimatedCostSavings,
+      fallbackPaths: b.fallbackPaths,
+    }));
+    setCallBatches(restored);
+    setActiveSavedBatchId(sb.id);
+    setShowBatchModal(true);
+  };
+
+  /** Save the current callBatches as a named saved batch. */
+  const saveCurrentBatch = async () => {
+    if (callBatches.length === 0 || !selectedAgentId) return;
+    setIsSavingBatch(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const ids = Array.from(new Set(callBatches.flatMap(b => b.testCases.map(tc => tc.id))));
+      const res = await fetch(api.endpoints.testExecution.saveBatches, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agentId: selectedAgentId,
+          name: saveBatchName.trim() || `Batch ${new Date().toLocaleString()}`,
+          batches: callBatches,
+          testCaseIds: ids,
+        }),
+      });
+      if (res.ok) {
+        setShowSaveBatchDialog(false);
+        setSaveBatchName("");
+        await fetchSavedBatches();
+      } else {
+        const e = await res.json().catch(() => ({}));
+        setError(e.error || "Failed to save batch");
+      }
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
 
   // Toggle test case selection
   const toggleTestCase = (id: string) => {
@@ -1139,6 +1254,67 @@ function NewTestRunContent() {
             </AccordionItem>
           </Accordion>
 
+          {/* Saved Batches — quick reuse */}
+          {selectedAgent && savedBatches.length > 0 && (
+            <div className="border rounded-lg p-4 bg-gradient-to-r from-teal-50 to-white dark:from-teal-950/20 dark:to-transparent">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Save className="h-4 w-4 text-[#1A5253]" />
+                  <span className="font-medium text-sm">Saved Batches</span>
+                  <Badge variant="outline" className="text-xs">{savedBatches.length}</Badge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Reuse a saved plan or pick &ldquo;Regenerate new batch&rdquo; below.
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {savedBatches.map(sb => (
+                  <div
+                    key={sb.id}
+                    className={`border rounded-md p-3 text-left transition bg-white dark:bg-gray-900
+                      ${activeSavedBatchId === sb.id ? 'border-[#1A5253] ring-1 ring-[#1A5253]' : 'hover:border-[#1A5253]/40'}`}
+                  >
+                    <div className="font-medium text-sm truncate">{sb.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {(sb.batch_data || []).length} call{(sb.batch_data || []).length === 1 ? '' : 's'}
+                      {' • '}{(sb.test_case_ids || []).length} test cases
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant={activeSavedBatchId === sb.id ? 'default' : 'outline'}
+                        onClick={() => useSavedBatch(sb)}
+                        className="flex-1"
+                      >
+                        {activeSavedBatchId === sb.id ? 'Loaded — Review' : 'Use Saved Batch'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {activeSavedBatchId && (
+                <div className="mt-3 flex items-center gap-2 text-xs">
+                  <RotateCcw className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    Using a saved batch. Clear selection below and click &ldquo;Plan Batches&rdquo; to regenerate.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setActiveSavedBatchId(null);
+                      setCallBatches([]);
+                      setSelectedTestCaseIds(new Set());
+                    }}
+                  >
+                    Regenerate new batch
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Test Cases Section */}
           <div className="border rounded-lg p-6 bg-card">
             <div className="flex items-center justify-between mb-4">
@@ -1876,6 +2052,19 @@ function NewTestRunContent() {
             <Button
               variant="outline"
               onClick={() => {
+                setSaveBatchName(activeSavedBatchId
+                  ? (savedBatches.find(sb => sb.id === activeSavedBatchId)?.name || "")
+                  : `${selectedAgent?.name || 'Agent'} - ${new Date().toLocaleDateString()}`);
+                setShowSaveBatchDialog(true);
+              }}
+              disabled={callBatches.length === 0}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {activeSavedBatchId ? "Save As New" : "Save Batch"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
                 setScheduleName(`${selectedAgent?.name} - Scheduled Test`);
                 setScheduleTime(getDefaultTime());
                 setShowScheduleDialog(true);
@@ -1898,6 +2087,45 @@ function NewTestRunContent() {
               Start {callBatches.length} Batched Calls
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Batch Dialog */}
+      <Dialog open={showSaveBatchDialog} onOpenChange={setShowSaveBatchDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Save className="h-5 w-5 text-primary" />
+              Save Batch Plan
+            </DialogTitle>
+            <DialogDescription>
+              Saved batch plans are stored on this agent and can be re-run any time
+              without going through batching again. Edit / reorder / rename them under
+              the agent&apos;s <span className="font-medium">Saved Batches</span> tab.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label className="text-sm">Batch name</Label>
+            <Input
+              value={saveBatchName}
+              onChange={(e) => setSaveBatchName(e.target.value)}
+              placeholder="e.g. PCI compliance regression"
+              autoFocus
+            />
+            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              {callBatches.length} call{callBatches.length === 1 ? '' : 's'} •
+              {' '}{callBatches.reduce((s, b) => s + b.testCases.length, 0)} test cases
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveBatchDialog(false)} disabled={isSavingBatch}>
+              Cancel
+            </Button>
+            <Button onClick={saveCurrentBatch} disabled={isSavingBatch || !saveBatchName.trim()}>
+              {isSavingBatch && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Batch
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

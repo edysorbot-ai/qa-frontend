@@ -533,6 +533,31 @@ export default function AgentDetailPage() {
     }
   };
 
+  // Update a saved batch (rename and/or new batch_data after reorder/remove).
+  const updateSavedBatch = async (
+    batchId: string,
+    payload: { name?: string; batches?: any[] }
+  ) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.testExecution.updateSavedBatch(batchId), {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        await fetchSavedBatches();
+      } else {
+        console.error("Failed to update batch:", await res.text());
+      }
+    } catch (error) {
+      console.error("Failed to update batch:", error);
+    }
+  };
+
   // Run a saved batch
   const runSavedBatch = async (savedBatch: typeof savedBatches[0]) => {
     try {
@@ -3406,26 +3431,70 @@ export default function AgentDetailPage() {
                     ))}
                   </div>
 
-                  {/* Expanded batch detail */}
+                  {/* Expanded batch detail — editable */}
                   {activeSavedBatchId && (() => {
                     const activeBatch = savedBatches.find(sb => sb.id === activeSavedBatchId);
                     if (!activeBatch) return null;
+                    const moveCall = (idx: number, dir: -1 | 1) => {
+                      const next = [...activeBatch.batch_data];
+                      const j = idx + dir;
+                      if (j < 0 || j >= next.length) return;
+                      [next[idx], next[j]] = [next[j], next[idx]];
+                      updateSavedBatch(activeBatch.id, { batches: next });
+                    };
+                    const removeCall = (idx: number) => {
+                      const next = activeBatch.batch_data.filter((_: any, i: number) => i !== idx);
+                      updateSavedBatch(activeBatch.id, { batches: next });
+                    };
+                    const renameBatch = () => {
+                      const newName = window.prompt("Rename saved batch:", activeBatch.name);
+                      if (newName && newName.trim() && newName !== activeBatch.name) {
+                        updateSavedBatch(activeBatch.id, { name: newName.trim() });
+                      }
+                    };
                     return (
                       <div className="mt-4 border-t pt-4">
-                        <h4 className="text-sm font-medium mb-3">Batch Details: {activeBatch.name}</h4>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-sm font-medium">
+                            Batch Details: {activeBatch.name}
+                          </h4>
+                          <Button size="sm" variant="ghost" onClick={renameBatch}>
+                            <Edit2 className="h-3 w-3 mr-1" />
+                            Rename
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Reorder the calls or remove ones you don&apos;t want. Changes are saved instantly.
+                        </p>
                         <div className="grid gap-2">
                           {activeBatch.batch_data.map((batch: any, idx: number) => (
                             <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-md">
+                              <div className="flex flex-col">
+                                <button
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                  disabled={idx === 0}
+                                  onClick={() => moveCall(idx, -1)}
+                                  aria-label="Move up"
+                                >▲</button>
+                                <button
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                  disabled={idx === activeBatch.batch_data.length - 1}
+                                  onClick={() => moveCall(idx, 1)}
+                                  aria-label="Move down"
+                                >▼</button>
+                              </div>
                               <Badge variant="outline" className="flex-shrink-0">Call {idx + 1}</Badge>
                               <span className="text-sm text-muted-foreground truncate flex-1">
                                 {batch.testCases?.map((tc: any) => tc.name).join(', ') || `${batch.testCaseIds?.length || 0} test cases`}
                               </span>
                               {batch.testMode && <Badge variant="secondary" className="text-xs">{batch.testMode}</Badge>}
-                              {batch.reasoning && (
-                                <span className="text-xs text-muted-foreground italic hidden md:block max-w-[200px] truncate">
-                                  {batch.reasoning}
-                                </span>
-                              )}
+                              <button
+                                className="text-muted-foreground hover:text-destructive"
+                                onClick={() => removeCall(idx)}
+                                aria-label="Remove call"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           ))}
                         </div>

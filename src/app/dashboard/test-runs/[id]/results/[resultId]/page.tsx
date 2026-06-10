@@ -11,6 +11,7 @@ import {
   Volume2,
   CheckCircle2,
   XCircle,
+  AlertCircle,
   Loader2,
   RefreshCw,
   AlertTriangle,
@@ -75,7 +76,7 @@ interface TestResultDetail {
   expectedResponse: string;
   actualResponse: string;
   category: string;
-  status: "passed" | "failed" | "pending";
+  status: "passed" | "failed" | "inconclusive" | "pending";
   
   // Timing
   durationMs: number;
@@ -182,6 +183,7 @@ interface TestResultDetail {
 const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
+  inconclusive: "bg-amber-100 text-amber-800",
   pending: "bg-teal-100 text-teal-800",
 };
 
@@ -546,8 +548,10 @@ export default function TestResultDetailPage() {
             <h2 className="text-lg font-semibold mb-4">Test Result</h2>
             <div className="flex items-center justify-between mb-4">
               <Badge className={statusColors[result.status]} variant="outline">
-                {result.status === 'passed' ? <CheckCircle2 className="h-4 w-4 mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
-                {result.status.toUpperCase()}
+                {result.status === 'passed' ? <CheckCircle2 className="h-4 w-4 mr-1" />
+                  : result.status === 'inconclusive' ? <AlertCircle className="h-4 w-4 mr-1" />
+                  : <XCircle className="h-4 w-4 mr-1" />}
+                {result.status === 'inconclusive' ? 'TEST AGENT FAILED' : result.status.toUpperCase()}
               </Badge>
               <span className="text-sm text-muted-foreground">{result.category}</span>
             </div>

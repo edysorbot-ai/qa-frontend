@@ -34,6 +34,7 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
+  AlertCircle,
   Clock,
   Loader2,
   Phone,
@@ -120,7 +121,7 @@ interface TestResult {
   expectedResponse: string;
   actualResponse: string;
   category: string;
-  status: "passed" | "failed" | "pending" | "running";
+  status: "passed" | "failed" | "inconclusive" | "pending" | "running";
   latencyMs: number;
   durationMs?: number;
   batchId?: string;
@@ -736,12 +737,19 @@ const calculateMetrics = (
 const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
+  inconclusive: "bg-amber-100 text-amber-800",
   pending: "bg-slate-100 text-slate-700",
   running: "bg-slate-200 text-slate-800 animate-pulse",
   completed: "bg-green-100 text-green-800",
   cancelled: "bg-slate-100 text-slate-700",
   paused: "bg-slate-200 text-slate-700",
 };
+
+// Some test results are flagged as 'inconclusive' when our test caller failed
+// to inject the test scenario into the conversation. The verdict is shown as
+// "TEST AGENT FAILED" so the production agent isn't penalised.
+const statusLabel = (s: string) =>
+  s === 'inconclusive' ? 'TEST AGENT FAILED' : s.toUpperCase();
 
 // Helper function to format dates
 const formatDate = (dateString: string) => {
@@ -1772,7 +1780,14 @@ export default function TestRunDetailPage() {
 
           <TabsContent value="transcript" className="space-y-6">
             {/* Audio Recording Player — with per-speaker segregation */}
-            {selectedBatch.hasRecording && selectedBatch.audioUrl && (
+            {selectedBatch.testMode === "chat" ? (
+              <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground flex items-center gap-2">
+                <MessageSquare className="h-4 w-4" />
+                <span>
+                  <strong>Chat-mode test</strong> — no audio recording is captured for chat batches. The transcript below is the full conversation.
+                </span>
+              </div>
+            ) : selectedBatch.hasRecording && selectedBatch.audioUrl && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground font-medium">Listen as:</span>
@@ -1984,6 +1999,9 @@ export default function TestRunDetailPage() {
                           {result.status === "failed" && (
                             <XCircle className="h-5 w-5 text-red-500" />
                           )}
+                          {result.status === "inconclusive" && (
+                            <AlertCircle className="h-5 w-5 text-amber-500" />
+                          )}
                           {result.status === "pending" && (
                             <Clock className="h-5 w-5 text-slate-500" />
                           )}
@@ -1991,7 +2009,7 @@ export default function TestRunDetailPage() {
                             <Loader2 className="h-5 w-5 text-slate-600 animate-spin" />
                           )}
                           <Badge className={statusColors[result.status]}>
-                            {result.status.toUpperCase()}
+                            {statusLabel(result.status)}
                           </Badge>
                         </div>
                         <Badge variant="outline" className="text-xs">
@@ -2018,7 +2036,11 @@ export default function TestRunDetailPage() {
                               Actual:{" "}
                             </span>
                             <span
-                              className={`whitespace-pre-wrap ${result.status === "passed" ? "text-green-600" : "text-red-600"}`}
+                              className={`whitespace-pre-wrap ${
+                                result.status === "passed" ? "text-green-600"
+                                  : result.status === "inconclusive" ? "text-amber-600"
+                                  : "text-red-600"
+                              }`}
                             >
                               {result.actualResponse}
                             </span>
@@ -3158,6 +3180,12 @@ export default function TestRunDetailPage() {
                               <Badge className="bg-red-100 text-red-800">
                                 <XCircle className="h-3 w-3 mr-1" />
                                 Failed
+                              </Badge>
+                            )}
+                            {result.status === "inconclusive" && (
+                              <Badge className="bg-amber-100 text-amber-800">
+                                <AlertCircle className="h-3 w-3 mr-1" />
+                                Test Agent Failed
                               </Badge>
                             )}
                             {result.status === "pending" && (

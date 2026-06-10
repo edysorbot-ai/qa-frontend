@@ -103,6 +103,7 @@ export const api = {
       generateSmartTestCases: `${API_BASE_URL}/api/test-execution/generate-smart-test-cases`,
       saveBatches: `${API_BASE_URL}/api/test-execution/save-batches`,
       savedBatches: (agentId: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${agentId}`,
+      updateSavedBatch: (id: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${id}`,
       deleteSavedBatch: (id: string) => `${API_BASE_URL}/api/test-execution/saved-batches/${id}`,
       markFalsePositive: `${API_BASE_URL}/api/test-execution/mark-false-positive`,
       falsePositivePatterns: (agentId: string) => `${API_BASE_URL}/api/test-execution/false-positive-patterns/${agentId}`,
