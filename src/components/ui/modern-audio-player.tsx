@@ -240,7 +240,7 @@ export function ModernAudioPlayer({
     let msg = 'Recording could not be loaded';
     if (el?.error) {
       // MediaError codes: 1=ABORTED 2=NETWORK 3=DECODE 4=SRC_NOT_SUPPORTED/404
-      if (el.error.code === 4) msg = 'Recording file not found on server (was not captured for this run)';
+      if (el.error.code === 4) msg = 'Recording is not available for this call. Older runs (before the recording-persistence fix) lost their files when the container restarted; new runs are persisted on disk.';
       else if (el.error.code === 2) msg = 'Network error while loading recording';
       else if (el.error.code === 3) msg = 'Recording file is corrupted';
     }

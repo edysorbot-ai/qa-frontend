@@ -2085,41 +2085,7 @@ export default function TestRunDetailPage() {
                                 Factual ✓ {result.metrics.factualAssessment.confidence}%
                               </Badge>
                             )}
-                          {result.metrics?.toneStyle && (
-                            <>
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] border-blue-300 text-blue-700 dark:text-blue-400 capitalize"
-                                title={result.metrics.toneStyle.notes}
-                              >
-                                Tone: {result.metrics.toneStyle.tone}
-                              </Badge>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] ${
-                                  result.metrics.toneStyle.brandAlignment >= 80
-                                    ? 'border-green-300 text-green-700 dark:text-green-400'
-                                    : result.metrics.toneStyle.brandAlignment >= 50
-                                      ? 'border-amber-300 text-amber-700 dark:text-amber-400'
-                                      : 'border-red-300 text-red-700 dark:text-red-400'
-                                }`}
-                              >
-                                Brand: {result.metrics.toneStyle.brandAlignment}%
-                              </Badge>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] ${
-                                  result.metrics.toneStyle.conciseness >= 80
-                                    ? 'border-green-300 text-green-700 dark:text-green-400'
-                                    : result.metrics.toneStyle.conciseness >= 50
-                                      ? 'border-amber-300 text-amber-700 dark:text-amber-400'
-                                      : 'border-red-300 text-red-700 dark:text-red-400'
-                                }`}
-                              >
-                                Concise: {result.metrics.toneStyle.conciseness}%
-                              </Badge>
-                            </>
-                          )}
+                          {/* Tone/Brand/Concise chips removed per UX feedback */}
                           {/* Item 26: PII redaction count */}
                           {result.metrics?.piiRedaction?.redactionCount ? (
                             <Badge

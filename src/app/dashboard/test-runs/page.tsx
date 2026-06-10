@@ -20,6 +20,7 @@ import {
   Clock,
   RefreshCw,
   Trash2,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -39,6 +40,7 @@ interface TestRun {
   name: string;
   status: "running" | "completed" | "cancelled" | "failed";
   createdAt: string;
+  is_security_run?: boolean;
   stats: {
     total: number;
     completed: number;
@@ -212,7 +214,15 @@ export default function TestRunsPage() {
                 >
                   <td className="px-6 py-4">
                     <div>
-                      <div className="font-medium">{run.name}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {run.is_security_run && (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 flex items-center gap-1 text-[10px]">
+                            <ShieldAlert className="h-3 w-3" />
+                            SECURITY
+                          </Badge>
+                        )}
+                        {run.name}
+                      </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         {new Date(run.createdAt).toLocaleString()}
                       </div>
