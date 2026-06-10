@@ -423,6 +423,43 @@ export default function CallDetailPage() {
                 </CardContent>
               </Card>
 
+              {/* Response Latency at-a-glance — visible on every call so the
+                  ops team always sees how fast the agent replied. Falls back
+                  gracefully when timestamps aren't available. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-primary" />
+                    Response Latency
+                  </CardTitle>
+                  <CardDescription>
+                    Time between the user finishing their turn and the agent starting to speak.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {responseLatencyStats.measured > 0 ? (
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-2xl font-bold">{responseLatencyStats.avg}ms</div>
+                        <div className="text-xs text-muted-foreground">Average</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold">{responseLatencyStats.p90}ms</div>
+                        <div className="text-xs text-muted-foreground">P90</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold">{responseLatencyStats.measured}</div>
+                        <div className="text-xs text-muted-foreground">Turns measured</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Per-turn timestamps are not available for this call. Provider didn&apos;t emit word-level timings.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Metrics */}
               <Card>
                 <CardHeader>

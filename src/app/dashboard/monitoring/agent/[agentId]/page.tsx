@@ -889,6 +889,22 @@ export default function AgentMonitoringDetailPage() {
                             <span>•</span>
                             {new Date(call.started_at).toLocaleDateString()}
                           </div>
+                          {(() => {
+                            // Show per-call response latency (avg) so the
+                            // ops team can spot slow calls at a glance.
+                            const lat = call.latency || call.latency_metrics;
+                            const avg = lat?.avg_response_time ?? lat?.ttfb ?? lat?.e2e_p50;
+                            if (!avg) return null;
+                            const ms = Math.round(avg);
+                            const color = ms < 800 ? 'bg-green-50 text-green-700 border-green-200'
+                              : ms < 1500 ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-red-50 text-red-700 border-red-200';
+                            return (
+                              <Badge variant="outline" className={`mt-1 mr-1 text-[10px] ${color}`}>
+                                ⚡ {ms}ms
+                              </Badge>
+                            );
+                          })()}
                           {call.sentiment && (
                             <Badge variant="outline" className={`mt-2 text-xs ${sentimentColors[call.sentiment]}`}>
                               {call.sentiment}

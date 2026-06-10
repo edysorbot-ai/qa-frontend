@@ -16,9 +16,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Activity, 
+import {
+  Activity,
   Plus,
   Phone,
   RefreshCw,
@@ -26,10 +25,6 @@ import {
   Bot,
   MoreVertical,
   Trash2,
-  Wrench,
-  Bell,
-  AudioLines,
-  ShieldAlert,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -39,10 +34,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
 import Link from "next/link";
-import OperationsPanel from "@/components/monitoring/operations-panel";
-import NotificationsPanel from "@/components/monitoring/notifications-panel";
-import VoiceQualityPanel from "@/components/monitoring/voice-quality-panel";
-import RecommendationsPanel from "@/components/monitoring/recommendations-panel";
 
 const providerColors: Record<string, string> = {
   elevenlabs: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -238,29 +229,8 @@ export default function MonitoringPage() {
         </Button>
       </div>
 
-      {/* Tabbed monitoring surface */}
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="flex flex-wrap h-auto">
-          <TabsTrigger value="overview" className="gap-2">
-            <Activity className="h-4 w-4" /> Overview
-          </TabsTrigger>
-          <TabsTrigger value="operations" className="gap-2">
-            <Wrench className="h-4 w-4" /> Operations
-          </TabsTrigger>
-          <TabsTrigger value="voice" className="gap-2">
-            <AudioLines className="h-4 w-4" /> Voice & Language
-          </TabsTrigger>
-          <TabsTrigger value="recommendations" className="gap-2">
-            <ShieldAlert className="h-4 w-4" /> Recommendations
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-2">
-            <Bell className="h-4 w-4" /> Notifications
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-6 mt-2">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Calls</CardDescription>
@@ -310,7 +280,7 @@ export default function MonitoringPage() {
       {/* Monitored Agents Grid */}
       <div>
         <h2 className="text-xl font-semibold mb-4">Monitored Agents</h2>
-        
+
         {monitoredAgents.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {monitoredAgents.map((agent) => (
@@ -370,7 +340,7 @@ export default function MonitoringPage() {
                       <div className="text-xs text-muted-foreground">Issues</div>
                     </div>
                   </div>
-                  
+
                   <div className="mt-4 pt-4 border-t flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Phone className="h-4 w-4" />
@@ -406,22 +376,7 @@ export default function MonitoringPage() {
             </CardContent>
           </Card>
         )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="operations" className="mt-2">
-          <OperationsPanel />
-        </TabsContent>
-        <TabsContent value="voice" className="mt-2">
-          <VoiceQualityPanel />
-        </TabsContent>
-        <TabsContent value="recommendations" className="mt-2">
-          <RecommendationsPanel />
-        </TabsContent>
-        <TabsContent value="notifications" className="mt-2">
-          <NotificationsPanel />
-        </TabsContent>
-      </Tabs>
+      </div>
 
       {/* Add Agent Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
