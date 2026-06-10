@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -795,10 +795,7 @@ export default function AgentMonitoringDetailPage() {
                   <div
                     key={call.id}
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                    onClick={() => {
-                      setSelectedCall(call);
-                      setActiveTab("calls");
-                    }}
+                    onClick={() => router.push(`/dashboard/monitoring/${call.id}`)}
                   >
                     <div className="flex items-center gap-3">
                       <Phone className="h-4 w-4 text-muted-foreground" />
@@ -807,7 +804,7 @@ export default function AgentMonitoringDetailPage() {
                           {call.caller_phone || call.provider_call_id.slice(0, 8)}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {formatDuration(call.duration_seconds)} • {formatDate(call.started_at)}
+                          {formatDuration(call.duration_seconds)} â€¢ {formatDate(call.started_at)}
                         </div>
                       </div>
                     </div>
@@ -843,599 +840,112 @@ export default function AgentMonitoringDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Call Monitoring Tab */}
-        <TabsContent value="calls" className="flex-1">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-220px)]">
-            {/* Calls List */}
-            <div className="lg:col-span-1">
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle className="text-lg">Calls</CardTitle>
-                  <CardDescription>{calls.length} calls synced</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <ScrollArea className="h-[calc(100vh-340px)]">
-                    <div className="space-y-1 p-4">
-                      {calls.map((call) => (
-                        <div
+        {/* Call Monitoring Tab — full-width table; row click navigates to detail page */}
+        <TabsContent value="calls">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>All Production Calls</CardTitle>
+                <CardDescription>{calls.length} synced — click any row to open the full call analysis</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Started</th>
+                      <th className="px-4 py-3 text-left">Caller</th>
+                      <th className="px-4 py-3 text-left">Conversation</th>
+                      <th className="px-4 py-3 text-right">Duration</th>
+                      <th className="px-4 py-3 text-right">Avg latency</th>
+                      <th className="px-4 py-3 text-left">Sentiment</th>
+                      <th className="px-4 py-3 text-right">Score</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {calls.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center py-12 text-muted-foreground">
+                          No calls found. Start syncing to fetch production calls.
+                        </td>
+                      </tr>
+                    )}
+                    {calls.map((call) => {
+                      const lat: any = call.latency || (call as any).latency_metrics || {};
+                      const avgLat = lat.avg_response_time ?? lat.ttfb ?? lat.e2e_p50;
+                      const score = (call as any).overall_score;
+                      return (
+                        <tr
                           key={call.id}
-                          className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                            selectedCall?.id === call.id
-                              ? "bg-primary/10 border-primary"
-                              : "hover:bg-muted/50"
-                          } border`}
-                          onClick={() => setSelectedCall(call)}
+                          className="hover:bg-muted/40 cursor-pointer"
+                          onClick={() => router.push(`/dashboard/monitoring/${call.id}`)}
                         >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-medium text-sm truncate">
-                              {call.caller_phone || call.provider_call_id.slice(0, 12)}
-                            </span>
-                            {call.analysis_status === "completed" ? (
-                              call.issues_found > 0 ? (
-                                <span className="text-sm font-medium text-orange-500 flex items-center gap-1">
-                                  <AlertTriangle className="h-3 w-3" />
-                                  {call.issues_found}
-                                </span>
-                              ) : (
-                                <CheckCircle2 className="h-3 w-3 text-green-500" />
-                              )
-                            ) : (
-                              <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatDuration(call.duration_seconds)}
-                            <span>•</span>
-                            {new Date(call.started_at).toLocaleDateString()}
-                          </div>
-                          {(() => {
-                            // Show per-call response latency (avg) so the
-                            // ops team can spot slow calls at a glance.
-                            const lat = call.latency || call.latency_metrics;
-                            const avg = lat?.avg_response_time ?? lat?.ttfb ?? lat?.e2e_p50;
-                            if (!avg) return null;
-                            const ms = Math.round(avg);
-                            const color = ms < 800 ? 'bg-green-50 text-green-700 border-green-200'
-                              : ms < 1500 ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-red-50 text-red-700 border-red-200';
-                            return (
-                              <Badge variant="outline" className={`mt-1 mr-1 text-[10px] ${color}`}>
-                                ⚡ {ms}ms
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="font-medium">{formatDate(call.started_at)}</div>
+                            <div className="text-xs text-muted-foreground">{new Date(call.started_at).toLocaleDateString()}</div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {call.caller_phone || <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                            {call.provider_call_id?.slice(0, 18) || call.id.slice(0, 8)}
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {formatDuration(call.duration_seconds || 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {avgLat ? (() => {
+                              const ms = Math.round(avgLat);
+                              const color = ms < 800 ? 'text-green-600' : ms < 1500 ? 'text-amber-600' : 'text-red-600';
+                              return <span className={`font-mono ${color}`}>{ms}ms</span>;
+                            })() : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {(call as any).sentiment ? (
+                              <Badge variant="outline" className={`text-xs ${sentimentColors[(call as any).sentiment] || ''}`}>
+                                {(call as any).sentiment}
                               </Badge>
-                            );
-                          })()}
-                          {call.sentiment && (
-                            <Badge variant="outline" className={`mt-2 text-xs ${sentimentColors[call.sentiment]}`}>
-                              {call.sentiment}
-                            </Badge>
-                          )}
-                        </div>
-                      ))}
-                      {calls.length === 0 && (
-                        <div className="text-center py-8 text-muted-foreground">
-                          No calls found
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Call Details */}
-            <div className="lg:col-span-2">
-              {selectedCall ? (
-                <Card className="h-full flex flex-col">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg">Call Analysis</CardTitle>
-                        <CardDescription>
-                          {formatDate(selectedCall.started_at)}
-                        </CardDescription>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={providerColors[selectedCall.provider]}>
-                          {selectedCall.provider}
-                        </Badge>
-                        {selectedCall.analysis_status === "completed" && (
-                          selectedCall.issues_found > 0 ? (
-                            <Badge variant="outline" className="text-orange-500 border-orange-300">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              {selectedCall.issues_found} issues
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-green-500 border-green-300">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              All Passed
-                            </Badge>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex-1 overflow-hidden">
-                    <Tabs defaultValue="summary" className="h-full flex flex-col">
-                      <TabsList className="grid w-full grid-cols-3 mb-4">
-                        <TabsTrigger value="summary" className="flex items-center gap-2">
-                          <MessageSquare className="h-4 w-4" />
-                          Summary
-                        </TabsTrigger>
-                        <TabsTrigger value="transcript" className="flex items-center gap-2">
-                          <FileText className="h-4 w-4" />
-                          Transcript
-                        </TabsTrigger>
-                        <TabsTrigger value="recording" className="flex items-center gap-2">
-                          <Mic className="h-4 w-4" />
-                          Recording
-                        </TabsTrigger>
-                      </TabsList>
-
-                      {/* Summary Tab */}
-                      <TabsContent value="summary" className="flex-1 overflow-hidden mt-0">
-                        <ScrollArea className="h-[calc(100vh-420px)]">
-                          <div className="space-y-4 pr-4">
-                            {/* Key Metrics Row */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                              <div className="p-3 bg-muted/30 rounded-lg border">
-                                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                                  <Timer className="h-3 w-3" />
-                                  Duration
-                                </div>
-                                <p className="text-lg font-semibold">{formatDuration(selectedCall.duration_seconds)}</p>
-                              </div>
-                              <div className="p-3 bg-muted/30 rounded-lg border">
-                                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                                  <Zap className="h-3 w-3" />
-                                  Avg Latency
-                                </div>
-                                <p className="text-lg font-semibold">
-                                  {aggregatedLatency.avgResponseMs !== null
-                                    ? `${aggregatedLatency.avgResponseMs}ms`
-                                    : selectedCall.analysis?.metrics?.avgLatency
-                                    ? `${selectedCall.analysis.metrics.avgLatency}ms`
-                                    : "-"}
-                                </p>
-                              </div>
-                              <div className="p-3 bg-muted/30 rounded-lg border">
-                                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                                  <MessageSquare className="h-3 w-3" />
-                                  Turns
-                                </div>
-                                <p className="text-lg font-semibold">
-                                  {selectedCall.transcript?.length || 0}
-                                </p>
-                              </div>
-                              <div className="p-3 bg-muted/30 rounded-lg border">
-                                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                                  <TrendingUp className="h-3 w-3" />
-                                  Status
-                                </div>
-                                <p className={`text-lg font-semibold ${
-                                  selectedCall.status === 'completed' ? 'text-green-500' : 'text-orange-500'
-                                }`}>
-                                  {selectedCall.status === 'completed' ? 'Completed' : 'In Progress'}
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Latency Metrics */}
-                            <div className="p-4 bg-muted/20 rounded-lg border">
-                              <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                <Zap className="h-4 w-4" />
-                                Response Latency Metrics
-                              </h4>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                                <div className="p-3 bg-background rounded border">
-                                  <p className="text-muted-foreground text-xs">P50</p>
-                                  <p className="text-base font-semibold">
-                                    {aggregatedLatency.p50ResponseMs !== null ? `${aggregatedLatency.p50ResponseMs}ms` : "-"}
-                                  </p>
-                                </div>
-                                <div className="p-3 bg-background rounded border">
-                                  <p className="text-muted-foreground text-xs">P90</p>
-                                  <p className="text-base font-semibold">
-                                    {aggregatedLatency.p90ResponseMs !== null ? `${aggregatedLatency.p90ResponseMs}ms` : "-"}
-                                  </p>
-                                </div>
-                                <div className="p-3 bg-background rounded border">
-                                  <p className="text-muted-foreground text-xs">Max</p>
-                                  <p className="text-base font-semibold">
-                                    {aggregatedLatency.maxResponseMs !== null ? `${aggregatedLatency.maxResponseMs}ms` : "-"}
-                                  </p>
-                                </div>
-                                <div className="p-3 bg-background rounded border">
-                                  <p className="text-muted-foreground text-xs">Measured Turns</p>
-                                  <p className="text-base font-semibold">{aggregatedLatency.measuredTurns}</p>
-                                </div>
-                              </div>
-                              {!hasComponentLatency && (
-                                <p className="text-xs text-muted-foreground mt-3">
-                                  STT/LLM/TTS component latency is unavailable for this provider payload. Showing per-turn response latency from transcript timestamps.
-                                </p>
-                              )}
-                            </div>
-
-                            {/* Summary Text */}
-                            {selectedCall.analysis?.summary && (
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-2 flex items-center gap-2 text-sm">
-                                  <MessageSquare className="h-4 w-4" />
-                                  Call Summary
-                                </h4>
-                                <p className="text-sm text-muted-foreground leading-relaxed">
-                                  {selectedCall.analysis.summary}
-                                </p>
-                              </div>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {score != null ? (
+                              <span className={`font-semibold ${score >= 80 ? 'text-green-600' : score >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {Math.round(Number(score))}%
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {call.analysis_status === 'completed' ? (
+                              call.issues_found > 0 ? (
+                                <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  {call.issues_found} issues
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-green-600 border-green-300 text-xs">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  Clean
+                                </Badge>
+                              )
+                            ) : call.analysis_status === 'skipped_no_credits' ? (
+                              <Badge variant="outline" className="text-xs">No credits</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-yellow-600 text-xs">
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                Analyzing
+                              </Badge>
                             )}
-
-                            {/* Two Column Layout */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* Sentiment & Intent */}
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <Heart className="h-4 w-4" />
-                                  Sentiment Analysis
-                                </h4>
-                                <div className="space-y-3">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">User Sentiment</span>
-                                    <Badge variant="outline" className={sentimentColors[selectedCall.analysis?.sentiment?.user || 'neutral']}>
-                                      {selectedCall.analysis?.sentiment?.user || 'Neutral'}
-                                    </Badge>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">Agent Tone</span>
-                                    <Badge variant="outline" className={sentimentColors[selectedCall.analysis?.sentiment?.agent || 'neutral']}>
-                                      {selectedCall.analysis?.sentiment?.agent || 'Professional'}
-                                    </Badge>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">Overall</span>
-                                    <Badge variant="outline" className={sentimentColors[selectedCall.analysis?.sentiment?.overall || 'neutral']}>
-                                      {selectedCall.analysis?.sentiment?.overall || 'Positive'}
-                                    </Badge>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Quality Metrics */}
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <BarChart3 className="h-4 w-4" />
-                                  Quality Metrics
-                                </h4>
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                      <span className="text-muted-foreground">Response Quality</span>
-                                      <span className="font-medium">{selectedCall.analysis?.metrics?.responseQuality || 85}%</span>
-                                    </div>
-                                    <Progress value={selectedCall.analysis?.metrics?.responseQuality || 85} className="h-2" />
-                                  </div>
-                                  <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                      <span className="text-muted-foreground">Prompt Adherence</span>
-                                      <span className="font-medium">{selectedCall.analysis?.metrics?.promptAdherence || 90}%</span>
-                                    </div>
-                                    <Progress value={selectedCall.analysis?.metrics?.promptAdherence || 90} className="h-2" />
-                                  </div>
-                                  <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                      <span className="text-muted-foreground">Conversation Flow</span>
-                                      <span className="font-medium">{selectedCall.analysis?.metrics?.conversationFlow || 78}%</span>
-                                    </div>
-                                    <Progress value={selectedCall.analysis?.metrics?.conversationFlow || 78} className="h-2" />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Intent Detection */}
-                            {selectedCall.analysis?.intent && (
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <Target className="h-4 w-4" />
-                                  Intent Detection
-                                </h4>
-                                <div className="flex items-center gap-4">
-                                  <div className="flex-1">
-                                    <p className="text-sm text-muted-foreground mb-1">Detected Intent</p>
-                                    <p className="font-medium">{selectedCall.analysis.intent.detected || 'General Inquiry'}</p>
-                                  </div>
-                                  <Badge variant={selectedCall.analysis.intent.handled ? "default" : "destructive"} className="h-8">
-                                    {selectedCall.analysis.intent.handled ? (
-                                      <><CheckCircle2 className="h-3 w-3 mr-1" /> Handled</>
-                                    ) : (
-                                      <><XCircle className="h-3 w-3 mr-1" /> Not Handled</>
-                                    )}
-                                  </Badge>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Issues & Strengths Row */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* Issues */}
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                                  Issues Found ({selectedCall.analysis?.issues?.length || 0})
-                                </h4>
-                                {selectedCall.analysis?.issues && selectedCall.analysis.issues.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {selectedCall.analysis.issues.slice(0, 3).map((issue, idx) => (
-                                      <div key={idx} className="p-2 bg-orange-50 dark:bg-orange-950/20 rounded text-sm">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <Badge variant={issue.severity === "high" ? "destructive" : "outline"} className="text-xs">
-                                            {issue.severity}
-                                          </Badge>
-                                          <span className="font-medium text-xs">{issue.category}</span>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground">{issue.description}</p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-sm text-green-600 flex items-center gap-2">
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    No issues detected
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Strengths */}
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                  Strengths ({selectedCall.analysis?.strengths?.length || 0})
-                                </h4>
-                                {selectedCall.analysis?.strengths && selectedCall.analysis.strengths.length > 0 ? (
-                                  <ul className="space-y-2">
-                                    {selectedCall.analysis.strengths.slice(0, 3).map((strength, idx) => (
-                                      <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                                        <CheckCircle2 className="h-3 w-3 text-green-500 mt-1 shrink-0" />
-                                        {strength}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="text-sm text-green-600 flex items-center gap-2">
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    Good conversation flow
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Compliance */}
-                            {selectedCall.analysis?.compliance && (
-                              <div className="p-4 bg-muted/20 rounded-lg border">
-                                <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                  <Shield className="h-4 w-4" />
-                                  Compliance Check
-                                </h4>
-                                <div className="flex items-center gap-4">
-                                  <div className="w-16 h-16">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                      <PieChart>
-                                        <Pie
-                                          data={[
-                                            { value: selectedCall.analysis.compliance.score || 95 },
-                                            { value: 100 - (selectedCall.analysis.compliance.score || 95) }
-                                          ]}
-                                          innerRadius={18}
-                                          outerRadius={28}
-                                          startAngle={90}
-                                          endAngle={-270}
-                                          dataKey="value"
-                                        >
-                                          <Cell fill="#22c55e" />
-                                          <Cell fill="#e5e7eb" />
-                                        </Pie>
-                                      </PieChart>
-                                    </ResponsiveContainer>
-                                  </div>
-                                  <div>
-                                    <p className="text-2xl font-bold text-green-500">
-                                      {selectedCall.analysis.compliance.score || 95}%
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">Compliance Score</p>
-                                  </div>
-                                  {selectedCall.analysis.compliance.flags && selectedCall.analysis.compliance.flags.length > 0 && (
-                                    <div className="flex-1">
-                                      <p className="text-sm font-medium mb-1">Flags:</p>
-                                      <div className="flex flex-wrap gap-1">
-                                        {selectedCall.analysis.compliance.flags.map((flag, idx) => (
-                                          <Badge key={idx} variant="destructive" className="text-xs">
-                                            {flag.type}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {!selectedCall.analysis?.summary && !selectedCall.analysis?.sentiment && !selectedCall.analysis?.intent && (
-                              <div className="text-center py-12 text-muted-foreground">
-                                <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
-                                <p>Analysis in progress...</p>
-                              </div>
-                            )}
-                          </div>
-                        </ScrollArea>
-                      </TabsContent>
-
-                      {/* Transcript Tab */}
-                      <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
-                        <ScrollArea className="h-[calc(100vh-420px)]">
-                          {selectedCall.transcript && selectedCall.transcript.length > 0 ? (
-                            <div className="space-y-3 pr-4">
-                              {turnLatencyMetrics.length > 0 && (
-                                <div className="p-4 bg-muted/20 rounded-lg border">
-                                  <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
-                                    <BarChart3 className="h-4 w-4" />
-                                    Per-Turn Latency
-                                  </h4>
-                                  <div className="h-64">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                      <RechartsBarChart data={latencyChartData}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="turn" />
-                                        <YAxis tickFormatter={(value) => `${value}ms`} />
-                                        <Tooltip formatter={(value) => `${Math.round(Number(value) || 0)}ms`} />
-                                        <Legend />
-                                        {hasComponentLatency ? (
-                                          <>
-                                            <Bar dataKey="stt" stackId="latency" fill="#3b82f6" name="STT" radius={[3, 3, 0, 0]} />
-                                            <Bar dataKey="llm" stackId="latency" fill="#8b5cf6" name="LLM" />
-                                            <Bar dataKey="tts" stackId="latency" fill="#10b981" name="TTS" radius={[3, 3, 0, 0]} />
-                                          </>
-                                        ) : (
-                                          <Bar dataKey="response" fill="#0ea5e9" name="Response" radius={[4, 4, 0, 0]} />
-                                        )}
-                                      </RechartsBarChart>
-                                    </ResponsiveContainer>
-                                  </div>
-                                </div>
-                              )}
-                              {selectedCall.transcript.map((entry, idx) => (
-                                <div
-                                  key={idx}
-                                  className={`flex gap-2 ${
-                                    entry.role === "agent" ? "justify-start" : "justify-end"
-                                  }`}
-                                >
-                                  <div
-                                    className={`flex items-start gap-2 max-w-[85%] ${
-                                      entry.role === "agent"
-                                        ? "flex-row"
-                                        : "flex-row-reverse"
-                                    }`}
-                                  >
-                                    <div
-                                      className={`p-1.5 rounded-full shrink-0 ${
-                                        entry.role === "agent"
-                                          ? "bg-primary/10 text-primary"
-                                          : "bg-blue-100 text-blue-600"
-                                      }`}
-                                    >
-                                      {entry.role === "agent" ? (
-                                        <Bot className="h-3 w-3" />
-                                      ) : (
-                                        <User className="h-3 w-3" />
-                                      )}
-                                    </div>
-                                    <div
-                                      className={`px-3 py-2 rounded-lg text-sm ${
-                                        entry.role === "agent"
-                                          ? "bg-muted"
-                                          : "bg-primary text-primary-foreground"
-                                      }`}
-                                    >
-                                      {entry.content}
-                                    </div>
-                                    {entry.role === "agent" && (() => {
-                                      const turnLatency = turnLatencyMetrics.find((turn) => turn.agentIndex === idx);
-                                      if (!turnLatency) return null;
-                                      return (
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                          {turnLatency.responseLatencyMs !== null && (
-                                            <Badge variant="outline" className="text-[10px] font-mono">
-                                              Resp: {turnLatency.responseLatencyMs}ms
-                                            </Badge>
-                                          )}
-                                          {turnLatency.sttLatencyMs !== null && (
-                                            <Badge variant="outline" className="text-[10px] font-mono text-blue-600 border-blue-200">
-                                              STT: {Math.round(turnLatency.sttLatencyMs)}ms
-                                            </Badge>
-                                          )}
-                                          {turnLatency.llmLatencyMs !== null && (
-                                            <Badge variant="outline" className="text-[10px] font-mono text-violet-600 border-violet-200">
-                                              LLM: {Math.round(turnLatency.llmLatencyMs)}ms
-                                            </Badge>
-                                          )}
-                                          {turnLatency.ttsLatencyMs !== null && (
-                                            <Badge variant="outline" className="text-[10px] font-mono text-emerald-600 border-emerald-200">
-                                              TTS: {Math.round(turnLatency.ttsLatencyMs)}ms
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-center py-12 text-muted-foreground">
-                              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                              <p>No transcript available for this call</p>
-                            </div>
-                          )}
-                        </ScrollArea>
-                      </TabsContent>
-
-                      {/* Recording Tab */}
-                      <TabsContent value="recording" className="flex-1 overflow-hidden mt-0">
-                        <div className="h-full flex flex-col">
-                          {(selectedCall.provider === 'elevenlabs' || selectedCall.recording_url) ? (
-                            <div className="space-y-4">
-                              <div className="p-4 bg-muted/30 rounded-lg">
-                                <h4 className="font-medium mb-3 flex items-center gap-2">
-                                  <Mic className="h-4 w-4" />
-                                  Call Recording
-                                </h4>
-                                {recordingUrl ? (
-                                  <audio
-                                    controls
-                                    className="w-full"
-                                    src={recordingUrl}
-                                  >
-                                    Your browser does not support the audio element.
-                                  </audio>
-                                ) : (
-                                  <div className="flex items-center gap-2 text-muted-foreground">
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                    Loading recording...
-                                  </div>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div className="p-3 bg-muted/30 rounded-lg">
-                                  <span className="text-muted-foreground">Duration</span>
-                                  <p className="font-medium">{formatDuration(selectedCall.duration_seconds)}</p>
-                                </div>
-                                <div className="p-3 bg-muted/30 rounded-lg">
-                                  <span className="text-muted-foreground">Call Type</span>
-                                  <p className="font-medium capitalize">{selectedCall.call_type || 'Voice'}</p>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-center py-12 text-muted-foreground flex-1 flex flex-col items-center justify-center">
-                              <Mic className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                              <p>No recording available for this call</p>
-                            </div>
-                          )}
-                        </div>
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="h-full flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <Phone className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>Select a call to view analysis</p>
-                  </div>
-                </Card>
-              )}
-            </div>
-          </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

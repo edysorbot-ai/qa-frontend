@@ -137,6 +137,11 @@ export default function CallDetailPage() {
   const [copied, setCopied] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [audioMetrics, setAudioMetrics] = useState<any>(null);
+  const [audioAnalyzing, setAudioAnalyzing] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   const toTimelineMs = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
@@ -271,6 +276,67 @@ export default function CallDetailPage() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Fetch authenticated recording as a blob URL once we know the call has a recording.
+  useEffect(() => {
+    if (!call?.id) return;
+    if (!call.recording_url) {
+      setRecordingUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let revoke: string | null = null;
+    (async () => {
+      try {
+        setRecordingError(null);
+        const token = await getToken();
+        const r = await fetch(api.endpoints.monitoring.recording(call.id), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) {
+          setRecordingError(`Recording fetch failed (${r.status})`);
+          return;
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        if (!cancelled) setRecordingUrl(url);
+      } catch (e: any) {
+        setRecordingError(e?.message || 'Failed to load recording');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [call?.id, call?.recording_url, getToken]);
+
+  // Surface cached audioMetrics from analysis JSON
+  useEffect(() => {
+    if (call?.analysis && (call.analysis as any).audioMetrics) {
+      setAudioMetrics((call.analysis as any).audioMetrics);
+    }
+  }, [call?.analysis]);
+
+  const handleAnalyzeAudio = async () => {
+    if (!call?.id) return;
+    setAudioAnalyzing(true);
+    setAudioError(null);
+    try {
+      const token = await getToken();
+      const r = await fetch(api.endpoints.monitoring.analyzeAudio(call.id), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+      setAudioMetrics(data.audioMetrics);
+    } catch (e: any) {
+      setAudioError(e?.message || 'Audio analysis failed');
+    } finally {
+      setAudioAnalyzing(false);
+    }
   };
 
   if (loading) {
@@ -661,25 +727,35 @@ export default function CallDetailPage() {
                 </div>
               )}
               {call.recording_url && (
-                <div className="mb-4 p-3 bg-muted rounded-lg flex items-center gap-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsPlaying(!isPlaying)}
-                  >
-                    {isPlaying ? (
-                      <Pause className="h-4 w-4" />
-                    ) : (
-                      <Play className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <audio
-                    src={call.recording_url}
-                    controls
-                    className="flex-1 h-8"
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
-                  />
+                <div className="mb-4 p-3 bg-muted rounded-lg">
+                  {recordingUrl ? (
+                    <div className="flex items-center gap-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsPlaying(!isPlaying)}
+                      >
+                        {isPlaying ? (
+                          <Pause className="h-4 w-4" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <audio
+                        src={recordingUrl}
+                        controls
+                        className="flex-1 h-8"
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                      />
+                    </div>
+                  ) : recordingError ? (
+                    <p className="text-sm text-amber-700 dark:text-amber-400">{recordingError}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Loading recording…
+                    </p>
+                  )}
                 </div>
               )}
               <ScrollArea className="h-[500px]">
@@ -752,6 +828,100 @@ export default function CallDetailPage() {
         {/* Analysis Tab - Detailed Table View */}
         <TabsContent value="analysis">
           <div className="space-y-4">
+            {/* Voice Quality / Audio Analysis */}
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Voice Quality (ASR / Pitch / TTS)
+                  </CardTitle>
+                  <CardDescription>
+                    Pitch consistency from the recorded audio, plus TTS naturalness heuristics from the transcript.
+                  </CardDescription>
+                </div>
+                <Button size="sm" onClick={handleAnalyzeAudio} disabled={audioAnalyzing || !call.recording_url}>
+                  {audioAnalyzing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                  )}
+                  {audioMetrics ? 'Re-analyze Audio' : 'Analyze Audio'}
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {audioError && (
+                  <p className="text-sm text-red-600 mb-3">{audioError}</p>
+                )}
+                {audioMetrics ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Pitch */}
+                    <div className="border rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Pitch consistency</p>
+                      {audioMetrics.pitch && !audioMetrics.pitch.error ? (
+                        <div className="space-y-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-bold">{audioMetrics.pitch.consistencyScore}</span>
+                            <span className="text-sm text-muted-foreground">/ 100</span>
+                            <Badge variant="outline" className="ml-auto capitalize">{(audioMetrics.pitch.rating || '').replace('_', ' ')}</Badge>
+                          </div>
+                          <Progress value={audioMetrics.pitch.consistencyScore} className="h-2" />
+                          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground mt-2">
+                            <div>Mean centroid: <span className="font-mono">{Math.round(audioMetrics.pitch.meanCentroidHz)} Hz</span></div>
+                            <div>Stddev: <span className="font-mono">{Math.round(audioMetrics.pitch.stddevCentroidHz)} Hz</span></div>
+                            <div>CV: <span className="font-mono">{audioMetrics.pitch.coefficientOfVariation?.toFixed(2)}</span></div>
+                            <div>Frames: <span className="font-mono">{audioMetrics.pitch.framesAnalysed}</span></div>
+                          </div>
+                          {audioMetrics.pitch.notes?.length > 0 && (
+                            <ul className="text-xs text-muted-foreground list-disc ml-4 mt-2">
+                              {audioMetrics.pitch.notes.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{audioMetrics.pitch?.error || 'No pitch data'}</p>
+                      )}
+                    </div>
+                    {/* TTS */}
+                    <div className="border rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">TTS naturalness</p>
+                      {audioMetrics.tts && !audioMetrics.tts.error ? (
+                        <div className="space-y-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-bold">{audioMetrics.tts.score}</span>
+                            <span className="text-sm text-muted-foreground">/ 100</span>
+                            <Badge variant="outline" className="ml-auto capitalize">{audioMetrics.tts.rating}</Badge>
+                          </div>
+                          <Progress value={audioMetrics.tts.score} className="h-2" />
+                          {audioMetrics.tts.signals && (
+                            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground mt-2">
+                              <div>WPM: <span className="font-mono">{audioMetrics.tts.signals.wordsPerMinute}</span></div>
+                              <div>Punct density: <span className="font-mono">{audioMetrics.tts.signals.punctuationDensity}</span></div>
+                              <div>Pause segments: <span className="font-mono">{audioMetrics.tts.signals.pauseSegments}</span></div>
+                              <div>Avg seg chars: <span className="font-mono">{audioMetrics.tts.signals.averageSegmentChars}</span></div>
+                            </div>
+                          )}
+                          {audioMetrics.tts.issues?.length > 0 && (
+                            <ul className="text-xs text-amber-700 list-disc ml-4 mt-2">
+                              {audioMetrics.tts.issues.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{audioMetrics.tts?.error || 'No TTS data'}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {call.recording_url
+                      ? 'Click "Analyze Audio" to extract pitch consistency from the recording and compute TTS naturalness heuristics from the transcript.'
+                      : 'No recording available for this call — voice quality analysis requires audio.'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Raw Analysis Data */}
             <Card>
               <CardHeader>

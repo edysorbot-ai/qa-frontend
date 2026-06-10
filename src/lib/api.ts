@@ -197,6 +197,8 @@ export const api = {
       calls: `${API_BASE_URL}/api/monitoring/calls`,
       call: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}`,
       reanalyze: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}/reanalyze`,
+      recording: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}/recording`,
+      analyzeAudio: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}/analyze-audio`,
       insights: (agentId: string) => `${API_BASE_URL}/api/monitoring/insights/${agentId}`,
       deleteCall: (callId: string) => `${API_BASE_URL}/api/monitoring/calls/${callId}`,
     },
