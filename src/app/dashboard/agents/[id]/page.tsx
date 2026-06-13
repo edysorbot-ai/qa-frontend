@@ -4553,21 +4553,13 @@ export default function AgentDetailPage() {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{sb.batch_data.length} calls</span>
                           <span>&bull;</span>
                           <span>{sb.test_case_ids.length} tests</span>
                           <span>&bull;</span>
                           <span>{new Date(sb.created_at).toLocaleDateString()}</span>
                         </div>
-                        <Button
-                          size="sm"
-                          className="w-full gap-1"
-                          onClick={(e) => { e.stopPropagation(); runSavedBatch(sb); }}
-                        >
-                          <Play className="h-3 w-3" />
-                          Run Batch
-                        </Button>
                       </div>
                     ))}
                   </div>
