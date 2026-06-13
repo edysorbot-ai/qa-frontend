@@ -201,6 +201,7 @@ interface TestRun {
   created_at: string;
   completed_at?: string;
   config?: Record<string, any>;
+  is_security_run?: boolean;
 }
 
 interface AgentAnalysisResult {
@@ -410,6 +411,7 @@ export default function AgentDetailPage() {
 
   // Saved Batches tab filter: 'all' | 'normal' | 'security'
   const [savedBatchesFilter, setSavedBatchesFilter] = useState<'all' | 'normal' | 'security'>('all');
+  const [testRunsFilter, setTestRunsFilter] = useState<'all' | 'normal' | 'security'>('all');
 
   // Knowledge Base state
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>([]);
@@ -4195,6 +4197,21 @@ export default function AgentDetailPage() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-md border bg-muted/30 p-0.5 text-xs">
+                    {(['all','normal','security'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setTestRunsFilter(f)}
+                        className={`px-3 py-1 rounded ${
+                          testRunsFilter === f
+                            ? (f === 'security' ? 'bg-amber-500 text-white' : 'bg-primary text-primary-foreground')
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {f === 'all' ? 'All' : f === 'normal' ? 'Regular' : 'Security'}
+                      </button>
+                    ))}
+                  </div>
                   {selectedRunIds.size === 2 && (
                     <Button onClick={handleCompareRuns} className="gap-2">
                       <GitCompare className="h-4 w-4" />
@@ -4255,7 +4272,13 @@ export default function AgentDetailPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {testRuns.map((run) => {
+                        {testRuns
+                          .filter(run =>
+                            testRunsFilter === 'all' ? true :
+                            testRunsFilter === 'security' ? !!run.is_security_run :
+                            !run.is_security_run
+                          )
+                          .map((run) => {
                           const statusColors: Record<string, string> = {
                             completed: "bg-green-100 text-green-800",
                             running: "bg-slate-100 text-slate-800",
@@ -4284,6 +4307,11 @@ export default function AgentDetailPage() {
                                 <div className="flex items-center gap-2">
                                   <BarChart3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                                   <span className="font-medium truncate">{run.name || `Test Run #${run.id.slice(0, 8)}`}</span>
+                                  {run.is_security_run && (
+                                    <Badge className="bg-amber-100 text-amber-800 text-[10px] gap-1">
+                                      <ShieldAlert className="h-3 w-3" /> Security
+                                    </Badge>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 w-32">
