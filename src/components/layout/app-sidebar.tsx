@@ -38,51 +38,33 @@ import {
   Activity,
   BarChart3,
   Wrench,
+  Lightbulb,
+  Bell,
+  Cog,
+  Timer,
+  AudioLines,
+  FlaskConical,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
 const menuItems = [
-  {
-    title: "Dashboard",
-    icon: LayoutDashboard,
-    href: "/dashboard",
-  },
-  {
-    title: "Agents",
-    icon: Users,
-    href: "/dashboard/agents",
-  },
-  {
-    title: "Test Runs",
-    icon: PlayCircle,
-    href: "/dashboard/test-runs",
-  },
-  {
-    title: "Test Schedules",
-    icon: CalendarClock,
-    href: "/dashboard/scheduled-tests",
-  },
-  {
-    title: "Production Monitoring",
-    icon: Activity,
-    href: "/dashboard/monitoring",
-  },
-  {
-    title: "Analytics",
-    icon: BarChart3,
-    href: "/dashboard/analytics",
-  },
-  {
-    title: "Agent Builder",
-    icon: Wrench,
-    href: "/dashboard/agent-builder",
-  },
-  {
-    title: "Settings",
-    icon: Settings,
-    href: "/dashboard/settings",
-  },
+  { title: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { title: "Agents", icon: Users, href: "/dashboard/agents" },
+  { title: "Test Cases", icon: FileText, href: "/dashboard/test-cases" },
+  { title: "Test Runs", icon: PlayCircle, href: "/dashboard/test-runs" },
+  { title: "Test Schedules", icon: CalendarClock, href: "/dashboard/scheduled-tests" },
+  { title: "A/B Testing", icon: FlaskConical, href: "/dashboard/ab-testing" },
+  { title: "Production Monitoring", icon: Activity, href: "/dashboard/monitoring" },
+  { title: "Analytics", icon: BarChart3, href: "/dashboard/analytics" },
+  { title: "Recommendations", icon: Lightbulb, href: "/dashboard/recommendations" },
+  { title: "Latency", icon: Timer, href: "/dashboard/latency" },
+  { title: "Voice Quality", icon: AudioLines, href: "/dashboard/voice-quality" },
+  { title: "Operations", icon: Cog, href: "/dashboard/operations" },
+  { title: "Notifications", icon: Bell, href: "/dashboard/notifications" },
+  { title: "Agent Builder", icon: Wrench, href: "/dashboard/agent-builder" },
+  { title: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
 export function AppSidebar({ children }: { children: React.ReactNode }) {
