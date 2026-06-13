@@ -280,9 +280,10 @@ export default function TestCasesPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setAgents(data);
-      if (data.length > 0) {
-        setSelectedAgentId(data[0].id);
+      const list: Agent[] = Array.isArray(data) ? data : (Array.isArray(data?.agents) ? data.agents : []);
+      setAgents(list);
+      if (list.length > 0) {
+        setSelectedAgentId(list[0].id);
       }
     } catch (error) {
       console.error("Failed to fetch agents:", error);

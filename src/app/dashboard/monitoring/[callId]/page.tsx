@@ -1329,7 +1329,7 @@ function HorizontalConversationTimeline({
   }, [currentTime, playing, innerW]);
 
   return (
-    <div ref={wrapRef}>
+    <div ref={wrapRef} className="w-full min-w-0 max-w-full overflow-hidden">
       <audio ref={audioRef} src={recordingUrl} preload="metadata" className="hidden" />
 
       <div className="flex items-center gap-3 mb-3 flex-wrap">

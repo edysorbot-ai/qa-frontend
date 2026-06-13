@@ -28,7 +28,6 @@ import { useClerk, useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Bot,
   PlayCircle,
   Settings,
   LogOut,
@@ -38,12 +37,6 @@ import {
   Activity,
   BarChart3,
   Wrench,
-  Lightbulb,
-  Bell,
-  Cog,
-  Timer,
-  AudioLines,
-  FlaskConical,
   FileText,
 } from "lucide-react";
 import Link from "next/link";
@@ -55,14 +48,8 @@ const menuItems = [
   { title: "Test Cases", icon: FileText, href: "/dashboard/test-cases" },
   { title: "Test Runs", icon: PlayCircle, href: "/dashboard/test-runs" },
   { title: "Test Schedules", icon: CalendarClock, href: "/dashboard/scheduled-tests" },
-  { title: "A/B Testing", icon: FlaskConical, href: "/dashboard/ab-testing" },
   { title: "Production Monitoring", icon: Activity, href: "/dashboard/monitoring" },
   { title: "Analytics", icon: BarChart3, href: "/dashboard/analytics" },
-  { title: "Recommendations", icon: Lightbulb, href: "/dashboard/recommendations" },
-  { title: "Latency", icon: Timer, href: "/dashboard/latency" },
-  { title: "Voice Quality", icon: AudioLines, href: "/dashboard/voice-quality" },
-  { title: "Operations", icon: Cog, href: "/dashboard/operations" },
-  { title: "Notifications", icon: Bell, href: "/dashboard/notifications" },
   { title: "Agent Builder", icon: Wrench, href: "/dashboard/agent-builder" },
   { title: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
@@ -177,11 +164,11 @@ export function AppSidebar({ children }: { children: React.ReactNode }) {
             </SidebarMenu>
           </SidebarFooter>
         </Sidebar>
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 min-w-0 flex flex-col">
           <header className="flex h-14 items-center gap-4 border-b bg-background px-6">
             <SidebarTrigger />
           </header>
-          <div className="flex-1 p-6">{children}</div>
+          <div className="flex-1 min-w-0 p-6 overflow-x-hidden">{children}</div>
         </main>
       </div>
     </SidebarProvider>
