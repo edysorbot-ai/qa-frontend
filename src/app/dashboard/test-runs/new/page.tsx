@@ -39,7 +39,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard, Shield, Save, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Layers, GripVertical, X, Phone, Edit2, Check, Search, Bot, FileText, Settings, ListChecks, PlayCircle, Maximize2, MessageSquare, CalendarClock, Calendar, Clock, RefreshCw, StopCircle, AlertTriangle, CreditCard, Shield, Save, RotateCcw, Sparkles } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -204,11 +204,19 @@ function NewTestRunContent() {
     batch_data: any[];
     test_case_ids: string[];
     created_at: string;
+    is_security?: boolean;
   }>>([]);
   const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
   const [showSaveBatchDialog, setShowSaveBatchDialog] = useState(false);
   const [saveBatchName, setSaveBatchName] = useState("");
   const [isSavingBatch, setIsSavingBatch] = useState(false);
+  // When true, the page reveals the legacy "pick test cases + plan batches"
+  // workflow. By default, the page is a saved-batch picker only — batching
+  // happens in the agent's Test Cases tab.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [runningSavedBatchId, setRunningSavedBatchId] = useState<string | null>(null);
+  // Filter for saved-batch list: regular vs security
+  const [batchKindFilter, setBatchKindFilter] = useState<'all' | 'normal' | 'security'>('all');
 
   // Schedule dialog state
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
@@ -468,6 +476,76 @@ function NewTestRunContent() {
     setCallBatches(restored);
     setActiveSavedBatchId(sb.id);
     setShowBatchModal(true);
+  };
+
+  /**
+   * Run a saved batch directly — no wizard, no review modal. Starts the test
+   * run immediately and navigates to the run detail page. This is the primary
+   * action on this screen now that batching happens up-front on the agent
+   * page.
+   */
+  const runSavedBatchDirect = async (sb: typeof savedBatches[number]) => {
+    if (!selectedAgent || runningSavedBatchId) return;
+    setRunningSavedBatchId(sb.id);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const formattedBatches = (sb.batch_data || []).map((b: any, i: number) => {
+        const tcs = b.testCases && b.testCases.length
+          ? b.testCases
+          : (b.testCaseIds || [])
+              .map((id: string) => testCases.find((tc) => tc.id === id))
+              .filter(Boolean);
+        return {
+          id: b.id || `batch-${i + 1}`,
+          name: b.name || `Batch ${i + 1}`,
+          testMode: b.testMode || "voice",
+          testCases: (tcs || []).map((tc: any) => ({
+            id: tc.id,
+            name: tc.name,
+            scenario: tc.scenario,
+            expectedOutcome: tc.expectedOutcome,
+            category: tc.category,
+          })),
+        };
+      });
+
+      const response = await fetch(`${api.baseUrl}/api/test-execution/start-batched`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `${sb.name} - ${new Date().toLocaleString()}`,
+          provider: selectedAgent.provider,
+          agentId: selectedAgent.external_agent_id || selectedAgent.id,
+          internalAgentId: selectedAgent.id,
+          integrationId: selectedAgent.integration_id,
+          agentName: selectedAgent.name,
+          batches: formattedBatches,
+          enableBatching: true,
+          enableConcurrency: concurrencyEnabled,
+          concurrencyCount: concurrencyEnabled ? concurrencyCount : 1,
+          savedBatchId: sb.id,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        router.push(`/dashboard/test-runs/${data.testRunId}`);
+      } else {
+        const { errorResult } = await processApiResponse(response, { showToast: true });
+        setError(errorResult?.message || "Failed to start test run");
+      }
+    } catch (e: any) {
+      console.error("[runSavedBatchDirect] error:", e);
+      setError(e.message || "Failed to start test run");
+    } finally {
+      setRunningSavedBatchId(null);
+    }
   };
 
   /** Save the current callBatches as a named saved batch. */
@@ -1254,7 +1332,7 @@ function NewTestRunContent() {
             </AccordionItem>
           </Accordion>
 
-          {/* Saved Batches — quick reuse */}
+          {/* Saved Batches — primary run flow */}
           {selectedAgent && savedBatches.length > 0 && (
             <div className="border rounded-lg p-4 bg-gradient-to-r from-teal-50 to-white dark:from-teal-950/20 dark:to-transparent">
               <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1263,18 +1341,49 @@ function NewTestRunContent() {
                   <span className="font-medium text-sm">Saved Batches</span>
                   <Badge variant="outline" className="text-xs">{savedBatches.length}</Badge>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  Reuse a saved plan or pick &ldquo;Regenerate new batch&rdquo; below.
-                </span>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-md border bg-white/60 dark:bg-gray-900/60 p-0.5 text-xs">
+                    {(['all', 'normal', 'security'] as const).map(k => (
+                      <button
+                        key={k}
+                        onClick={() => setBatchKindFilter(k)}
+                        className={`px-3 py-1 rounded transition capitalize ${
+                          batchKindFilter === k
+                            ? (k === 'security' ? 'bg-amber-500 text-white' : 'bg-[#1A5253] text-white')
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {k === 'all' ? 'All' : k === 'normal' ? 'Regular' : 'Security'}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Pick a plan & click Run.
+                  </span>
+                </div>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {savedBatches.map(sb => (
+                {savedBatches
+                  .filter(sb =>
+                    batchKindFilter === 'all' ? true :
+                    batchKindFilter === 'security' ? sb.is_security :
+                    !sb.is_security
+                  )
+                  .map(sb => (
                   <div
                     key={sb.id}
-                    className={`border rounded-md p-3 text-left transition bg-white dark:bg-gray-900
-                      ${activeSavedBatchId === sb.id ? 'border-[#1A5253] ring-1 ring-[#1A5253]' : 'hover:border-[#1A5253]/40'}`}
+                    className={`border rounded-md p-3 text-left transition
+                      ${sb.is_security ? 'bg-amber-50/40 dark:bg-amber-950/20' : 'bg-white dark:bg-gray-900'}
+                      ${activeSavedBatchId === sb.id
+                        ? (sb.is_security ? 'border-amber-500 ring-1 ring-amber-500' : 'border-[#1A5253] ring-1 ring-[#1A5253]')
+                        : (sb.is_security ? 'hover:border-amber-500/60' : 'hover:border-[#1A5253]/40')
+                      }`}
                   >
-                    <div className="font-medium text-sm truncate">{sb.name}</div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {sb.is_security && <Shield className="h-3.5 w-3.5 text-amber-600 shrink-0" />}
+                      <div className="font-medium text-sm truncate flex-1">{sb.name}</div>
+                      {sb.is_security && <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-700">SEC</Badge>}
+                    </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {(sb.batch_data || []).length} call{(sb.batch_data || []).length === 1 ? '' : 's'}
                       {' • '}{(sb.test_case_ids || []).length} test cases
@@ -1282,11 +1391,30 @@ function NewTestRunContent() {
                     <div className="flex gap-2 mt-2">
                       <Button
                         size="sm"
-                        variant={activeSavedBatchId === sb.id ? 'default' : 'outline'}
-                        onClick={() => useSavedBatch(sb)}
-                        className="flex-1"
+                        onClick={() => runSavedBatchDirect(sb)}
+                        disabled={runningSavedBatchId !== null}
+                        className={`flex-1 ${sb.is_security ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
                       >
-                        {activeSavedBatchId === sb.id ? 'Loaded — Review' : 'Use Saved Batch'}
+                        {runningSavedBatchId === sb.id ? (
+                          <>
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <PlayCircle className="mr-1 h-3.5 w-3.5" />
+                            Run
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => useSavedBatch(sb)}
+                        disabled={runningSavedBatchId !== null}
+                        title="Review and customize before running"
+                      >
+                        Review
                       </Button>
                     </div>
                   </div>
@@ -1296,7 +1424,7 @@ function NewTestRunContent() {
                 <div className="mt-3 flex items-center gap-2 text-xs">
                   <RotateCcw className="h-3 w-3 text-muted-foreground" />
                   <span className="text-muted-foreground">
-                    Using a saved batch. Clear selection below and click &ldquo;Plan Batches&rdquo; to regenerate.
+                    Reviewing a saved batch in the modal.
                   </span>
                   <Button
                     size="sm"
@@ -1308,13 +1436,54 @@ function NewTestRunContent() {
                       setSelectedTestCaseIds(new Set());
                     }}
                   >
-                    Regenerate new batch
+                    Clear
                   </Button>
                 </div>
               )}
             </div>
           )}
 
+          {/* Empty-state CTA when no saved batches exist */}
+          {selectedAgent && savedBatches.length === 0 && !showAdvanced && (
+            <div className="border-2 border-dashed rounded-lg p-6 text-center bg-muted/20">
+              <Layers className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="font-medium">No saved batches for this agent yet</p>
+              <p className="text-sm text-muted-foreground mt-1 mb-4">
+                Create a batch plan from the agent&apos;s Test Cases tab, then come back here to run it.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <Button asChild>
+                  <Link href={`/dashboard/agents/${selectedAgentId}?tab=testcases#batching`}>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Go to Test Cases & Start Batching
+                  </Link>
+                </Button>
+                <Button variant="ghost" onClick={() => setShowAdvanced(true)}>
+                  Advanced: build batch here
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Hide-advanced toggle when saved batches exist */}
+          {selectedAgent && savedBatches.length > 0 && !showAdvanced && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-muted-foreground"
+                onClick={() => setShowAdvanced(true)}
+              >
+                Advanced: build a new batch from test cases →
+              </Button>
+            </div>
+          )}
+
+          {/* Legacy: pick test cases + plan batches manually. Only visible
+              when user opts in via "Advanced", or when there are no test
+              cases at all (so they at least see what's available). */}
+          {showAdvanced && (
+          <>
           {/* Test Cases Section */}
           <div className="border rounded-lg p-6 bg-card">
             <div className="flex items-center justify-between mb-4">
@@ -1753,6 +1922,8 @@ function NewTestRunContent() {
                 )}
               </Button>
             </div>
+          )}
+          </>
           )}
         </div>
       )}

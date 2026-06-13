@@ -5,10 +5,14 @@ import { useAuth } from "@clerk/nextjs";
 import { api } from "@/lib/api";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
 
-type Tab = "outage" | "consumption" | "sampling" | "tools" | "feedback";
+type Tab = "outage" | "consumption" | "sampling" | "tools" | "feedback" | "rlaif";
 
 interface AgentLite { id: string; name: string }
-interface OutageResult { id: string; provider: string; status: string; httpStatus?: number; latencyMs?: number; reason?: string }
+interface UptimeDay { day: string; total: number; ups: number; downs: number; uptime: number | null; avg_latency: number | null; status: "up" | "down" | "degraded" }
+interface UptimeSummary { provider: string; uptime_pct: number | null; checks: number; days: number }
+interface RlaifCategory { name: string; count: number; description: string }
+interface RlaifRecommendation { category: string; severity: "low" | "medium" | "high"; title: string; details: string; suggested_action: string }
+interface RlaifRun { id: number; agent_id: string | null; scope: string; period_start: string; period_end: string; total_evaluated: number; total_failed: number; categories: RlaifCategory[]; recommendations: RlaifRecommendation[]; created_at: string }
 interface Analytics {
   windowDays: number;
   total_calls: number;
@@ -29,11 +33,12 @@ interface ToolAnalytics {
 interface CallLite { id: string; agent_name?: string; call_type?: string; duration_seconds?: number; status?: string; created_at?: string }
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "outage", label: "Outage Status" },
+  { id: "outage", label: "Status Page" },
   { id: "consumption", label: "Consumption & Analytics" },
   { id: "sampling", label: "Sampling & Signals" },
   { id: "tools", label: "Tool Analytics" },
   { id: "feedback", label: "Feedback (RLHF)" },
+  { id: "rlaif", label: "RLAIF Recommendations" },
 ];
 
 export default function OperationsPage() {
@@ -45,7 +50,9 @@ export default function OperationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [outage, setOutage] = useState<OutageResult[] | null>(null);
+  const [uptime, setUptime] = useState<{ summary: UptimeSummary[]; byProvider: Record<string, UptimeDay[]> } | null>(null);
+  const [rlaifRuns, setRlaifRuns] = useState<RlaifRun[]>([]);
+  const [rlaifFreq, setRlaifFreq] = useState("daily");
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [days, setDays] = useState("30");
   const [samplingRate, setSamplingRate] = useState("1");
@@ -71,13 +78,57 @@ export default function OperationsPage() {
     })();
   }, [getToken]);
 
+  useEffect(() => {
+    if (tab === "outage") runOutage();
+    if (tab === "rlaif") loadRlaif();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   const runOutage = async () => {
-    setLoading(true); setError(null); setOutage(null);
+    setLoading(true); setError(null); setUptime(null);
     try {
-      const res = await fetch(`${api.baseUrl}/api/monitoring/outage-test`, { method: "POST", headers: await authHeaders(), body: "{}" });
+      // Status-page rollup (90 day)
+      const r1 = await fetch(`${api.baseUrl}/api/monitoring/uptime?days=90`, { headers: await authHeaders() });
+      const d1 = await r1.json();
+      if (r1.ok && d1.success) setUptime({ summary: d1.summary || [], byProvider: d1.byProvider || {} });
+      else setError(d1.error || "Failed to load uptime.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed."); } finally { setLoading(false); }
+  };
+
+  const runOutageNow = async () => {
+    setLoading(true); setError(null); setNotice(null);
+    try {
+      const res = await fetch(`${api.baseUrl}/api/monitoring/uptime/run-now`, { method: "POST", headers: await authHeaders(), body: "{}" });
       const data = await res.json();
-      if (res.ok && data.success) setOutage(data.results || []);
-      else setError(data.error || "Outage test failed.");
+      if (res.ok && data.success) {
+        setNotice(`Ran ${data.inserted} checks. Refreshing…`);
+        await runOutage();
+      } else setError(data.error || "Failed to run checks.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed."); } finally { setLoading(false); }
+  };
+
+  const loadRlaif = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(`${api.baseUrl}/api/monitoring/rlaif?limit=15`, { headers: await authHeaders() });
+      const data = await res.json();
+      if (res.ok && data.success) setRlaifRuns(data.runs || []);
+      else setError(data.error || "Failed to load RLAIF history.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed."); } finally { setLoading(false); }
+  };
+
+  const runRlaifNow = async () => {
+    setLoading(true); setError(null); setNotice(null);
+    try {
+      const res = await fetch(`${api.baseUrl}/api/monitoring/rlaif/run-now`, {
+        method: "POST", headers: await authHeaders(),
+        body: JSON.stringify({ frequency: rlaifFreq, agentId: agentId || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNotice(`RLAIF run complete — evaluated ${data.run.total_evaluated} items, ${data.run.recommendations?.length || 0} recommendations.`);
+        await loadRlaif();
+      } else setError(data.error || "RLAIF run failed.");
     } catch (e) { setError(e instanceof Error ? e.message : "Failed."); } finally { setLoading(false); }
   };
 
@@ -171,24 +222,142 @@ export default function OperationsPage() {
       {notice && <p className="text-sm text-green-600">{notice}</p>}
 
       {tab === "outage" && (
-        <div className="space-y-3">
-          <button onClick={runOutage} disabled={loading} className="bg-[#1A5253] text-white rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Run outage check
-          </button>
-          {outage && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border divide-y">
-              {outage.length === 0 && <p className="p-4 text-sm text-muted-foreground">No provider integrations configured.</p>}
-              {outage.map((r) => (
-                <div key={r.id} className="flex items-center justify-between p-3 text-sm">
-                  <span className="font-medium capitalize">{r.provider}</span>
-                  <span className="flex items-center gap-3">
-                    {r.latencyMs !== undefined && <span className="text-muted-foreground text-xs">{r.latencyMs}ms</span>}
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${r.status === "up" ? "bg-green-100 text-green-800" : r.status === "down" ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-700"}`}>{r.status.toUpperCase()}</span>
-                  </span>
-                </div>
-              ))}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <button onClick={runOutage} disabled={loading} className="bg-white dark:bg-gray-800 border rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Refresh
+            </button>
+            <button onClick={runOutageNow} disabled={loading} className="bg-[#1A5253] text-white rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+              Run checks now
+            </button>
+            <span className="text-xs text-muted-foreground ml-auto">Automated checks run every 15 min · 90-day window</span>
+          </div>
+
+          {uptime && uptime.summary.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No outage history yet. The first scheduled check runs within 15 minutes of backend start, or click <strong>Run checks now</strong>.
+            </p>
+          )}
+
+          {uptime && uptime.summary.length > 0 && (
+            <div className="space-y-4">
+              {uptime.summary.map((s) => {
+                const days = uptime.byProvider[s.provider] || [];
+                // Build a 90-day grid filling missing days
+                const grid: { day: string; status: "up" | "down" | "degraded" | "none"; uptime: number | null }[] = [];
+                const today = new Date();
+                for (let i = 89; i >= 0; i--) {
+                  const d = new Date(today.getTime() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+                  const found = days.find((x) => x.day === d);
+                  grid.push(found ? { day: d, status: found.status, uptime: found.uptime } : { day: d, status: "none", uptime: null });
+                }
+                const overallColor = s.uptime_pct === null ? "text-muted-foreground" : s.uptime_pct >= 99 ? "text-green-600" : s.uptime_pct >= 95 ? "text-amber-600" : "text-red-600";
+                return (
+                  <div key={s.provider} className="bg-white dark:bg-gray-800 rounded-lg border p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <span className="font-semibold capitalize">{s.provider}</span>
+                        <span className="text-xs text-muted-foreground ml-2">{s.checks} checks · {s.days} day(s) with data</span>
+                      </div>
+                      <span className={`text-lg font-bold ${overallColor}`}>{s.uptime_pct === null ? "—" : `${s.uptime_pct}%`}</span>
+                    </div>
+                    <div className="flex gap-[2px]">
+                      {grid.map((g) => {
+                        const cls = g.status === "up" ? "bg-green-500"
+                          : g.status === "degraded" ? "bg-amber-500"
+                          : g.status === "down" ? "bg-red-500"
+                          : "bg-gray-200 dark:bg-gray-700";
+                        return (
+                          <div
+                            key={g.day}
+                            className={`flex-1 h-8 rounded-sm ${cls}`}
+                            title={`${g.day} · ${g.status}${g.uptime !== null ? ` · ${g.uptime}% up` : ""}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                      <span>90 days ago</span>
+                      <span>Today</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "rlaif" && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Frequency</label>
+            <select className={field} value={rlaifFreq} onChange={(e) => setRlaifFreq(e.target.value)}>
+              <option value="hourly">Hourly</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+            </select>
+            <button onClick={runRlaifNow} disabled={loading} className="bg-[#1A5253] text-white rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />} Run RLAIF now
+            </button>
+            <span className="text-xs text-muted-foreground ml-auto">Daily sweep runs automatically at 00:30 UTC</span>
+          </div>
+
+          {rlaifRuns.length === 0 && <p className="text-sm text-muted-foreground">No RLAIF runs yet. Click <strong>Run RLAIF now</strong> to evaluate the period.</p>}
+
+          {rlaifRuns.map((r) => (
+            <div key={r.id} className="bg-white dark:bg-gray-800 rounded-lg border p-4 space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-sm font-semibold capitalize">{r.scope}</span>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {new Date(r.period_start).toLocaleDateString()} → {new Date(r.period_end).toLocaleDateString()}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+              </div>
+
+              <div className="flex gap-4 text-sm">
+                <div><span className="font-bold text-lg">{r.total_evaluated}</span> <span className="text-muted-foreground text-xs">evaluated</span></div>
+                <div><span className="font-bold text-lg text-red-600">{r.total_failed}</span> <span className="text-muted-foreground text-xs">failed</span></div>
+              </div>
+
+              {(r.categories || []).length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-1">Failure clusters</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {r.categories.map((c, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-900" title={c.description}>
+                        {c.name} · {c.count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(r.recommendations || []).length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground">Recommendations</h4>
+                  {r.recommendations.map((rec, i) => {
+                    const sevColor = rec.severity === "high" ? "border-red-300 bg-red-50" : rec.severity === "medium" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50";
+                    return (
+                      <div key={i} className={`border rounded p-3 text-sm ${sevColor}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold">{rec.title}</span>
+                          <span className="text-[10px] uppercase px-1.5 rounded bg-white border">{rec.severity}</span>
+                          <span className="text-[10px] uppercase text-muted-foreground">[{rec.category}]</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-1">{rec.details}</p>
+                        <p className="text-xs"><strong>Action:</strong> {rec.suggested_action}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

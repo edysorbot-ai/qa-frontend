@@ -1,7 +1,21 @@
 // API Configuration
-// Change NEXT_PUBLIC_API_URL in .env.local to switch backends
+// Set NEXT_PUBLIC_API_URL in .env.local to switch backends.
+// In production we deliberately do NOT fall back to localhost, so a missing
+// env var fails loudly during build/runtime instead of silently routing to
+// the user's own machine.
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const isProd = process.env.NODE_ENV === 'production';
+const envUrl = process.env.NEXT_PUBLIC_API_URL;
+
+if (isProd && !envUrl) {
+  // Throw at module load so the broken config is obvious in logs.
+  // (Build will still succeed because Next inlines envs at build-time;
+  // this only fires at runtime if a prod bundle was built without the env.)
+  // eslint-disable-next-line no-console
+  console.error('[api] NEXT_PUBLIC_API_URL is not set in production — all API calls will fail.');
+}
+
+export const API_BASE_URL = envUrl || (isProd ? '' : 'http://localhost:5000');
 
 export const api = {
   baseUrl: API_BASE_URL,
@@ -80,6 +94,8 @@ export const api = {
         `${API_BASE_URL}/api/test-cases/${id}/gold-examples/${kind}/approve`,
       goldUnapprove: (id: string, kind: 'acceptable' | 'unacceptable') =>
         `${API_BASE_URL}/api/test-cases/${id}/gold-examples/${kind}/unapprove`,
+      securitySuite: `${API_BASE_URL}/api/test-cases/security-suite`,
+      securitySuiteAdd: `${API_BASE_URL}/api/test-cases/security-suite/add`,
     },
     
     // Test Runs

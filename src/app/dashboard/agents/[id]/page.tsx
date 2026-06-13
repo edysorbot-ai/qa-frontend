@@ -68,6 +68,12 @@ import {
   Download,
   FileUp,
   Layers,
+  LayoutDashboard,
+  TrendingUp,
+  ShieldAlert,
+  Target,
+  Zap,
+  Save,
 } from "lucide-react";
 import {
   Dialog,
@@ -82,6 +88,21 @@ import Link from "next/link";
 import { TestFlowTab, WorkflowExecutionPlan, TestCaseData as WorkflowTestCase } from "@/components/workflow";
 import { ConsistencyTestPanel } from "@/components/consistency-test-panel";
 import { SecurityTestPanel } from "@/components/agents/security-test-panel";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  AreaChart,
+  Area,
+  Legend,
+} from "recharts";
 
 type Provider = "elevenlabs" | "retell" | "vapi" | "openai_realtime" | "custom" | "bolna" | "livekit" | "haptik";
 
@@ -294,6 +315,11 @@ export default function AgentDetailPage() {
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
   const [isLoadingRuns, setIsLoadingRuns] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
+
+  // Overview tab summaries
+  const [securitySummary, setSecuritySummary] = useState<any>(null);
+  const [complianceSummary, setComplianceSummary] = useState<any>(null);
+  const [consistencySummary, setConsistencySummary] = useState<any>(null);
   
   // Add test case form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -362,9 +388,28 @@ export default function AgentDetailPage() {
   const [showDynamicVariablesDialog, setShowDynamicVariablesDialog] = useState(false);
 
   // Saved Batches state
-  const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: any[]; test_case_ids: string[]; created_at: string }>>([]);
+  const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: any[]; test_case_ids: string[]; created_at: string; is_security?: boolean }>>([]);
   const [isLoadingBatches, setIsLoadingBatches] = useState(false);
   const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
+
+  // Inline batching (Test Cases tab) state
+  const [inlineBatches, setInlineBatches] = useState<any[] | null>(null);
+  const [isRunningInlineBatching, setIsRunningInlineBatching] = useState(false);
+  const [showInlineBatchSave, setShowInlineBatchSave] = useState(false);
+  const [inlineBatchName, setInlineBatchName] = useState("");
+  const [isSavingInlineBatch, setIsSavingInlineBatch] = useState(false);
+  const [inlineBatchError, setInlineBatchError] = useState<string | null>(null);
+
+  // Inline batching (Security tab) — separate state so the two flows can run independently.
+  const [securityBatches, setSecurityBatches] = useState<any[] | null>(null);
+  const [isRunningSecurityBatching, setIsRunningSecurityBatching] = useState(false);
+  const [showSecurityBatchSave, setShowSecurityBatchSave] = useState(false);
+  const [securityBatchName, setSecurityBatchName] = useState("");
+  const [isSavingSecurityBatch, setIsSavingSecurityBatch] = useState(false);
+  const [securityBatchError, setSecurityBatchError] = useState<string | null>(null);
+
+  // Saved Batches tab filter: 'all' | 'normal' | 'security'
+  const [savedBatchesFilter, setSavedBatchesFilter] = useState<'all' | 'normal' | 'security'>('all');
 
   // Knowledge Base state
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>([]);
@@ -378,6 +423,7 @@ export default function AgentDetailPage() {
 
   // Security tests live only in the Security tab; the Test Cases tab shows normal tests.
   const normalTestCases = savedTestCases.filter(tc => !tc.is_security_test);
+  const securityTestCases = savedTestCases.filter(tc => tc.is_security_test);
   // Get unique categories from existing (non-security) test cases
   const existingCategories = [...new Set(normalTestCases.map(tc => tc.category))].filter(Boolean);
 
@@ -525,6 +571,7 @@ export default function AgentDetailPage() {
             batch_data: sb.batch_data || [],
             test_case_ids: sb.test_case_ids || [],
             created_at: sb.created_at,
+            is_security: !!sb.is_security,
           })));
         }
       }
@@ -618,6 +665,305 @@ export default function AgentDetailPage() {
       console.error("Failed to run saved batch:", error);
     }
   };
+
+  // ---------------- Inline batching (Test Cases tab) ----------------
+  // Runs AI-powered batching over all non-security test cases and shows the
+  // resulting batch plan inline (without leaving the Test Cases tab). The user
+  // can then "Save" the plan, which stores it in Saved Batches.
+  const runInlineBatching = async () => {
+    if (normalTestCases.length === 0) return;
+    setIsRunningInlineBatching(true);
+    setInlineBatchError(null);
+    setInlineBatches(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+
+      const agentPrompt = agent?.prompt || "";
+      const agentFirstMessage =
+        (agent?.config as any)?.firstMessage ||
+        (agent?.config as any)?.first_message ||
+        (agent?.config as any)?.greeting ||
+        "";
+
+      const res = await fetch(api.endpoints.testExecution.analyzeForBatching, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testCases: normalTestCases.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            scenario: tc.scenario,
+            userInput: tc.scenario,
+            expectedBehavior: tc.expectedOutcome,
+            expectedOutcome: tc.expectedOutcome,
+            category: tc.category,
+            keyTopic: (tc as any).keyTopic,
+            priority: tc.priority,
+            testMode: (tc as any).test_mode || "auto",
+          })),
+          agentPrompt,
+          agentFirstMessage,
+        }),
+      });
+
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Batching failed");
+      }
+      const data = await res.json();
+      if (!data.success || !data.batches) {
+        throw new Error("Batching returned no batches");
+      }
+
+      const normalised = data.batches.map((b: any, i: number) => ({
+        id: b.batchId?.toString() || `batch-${i + 1}`,
+        name: b.name || `Batch ${i + 1}`,
+        testCases:
+          b.testCases ||
+          b.testCaseIds
+            ?.map((id: string) => normalTestCases.find((tc) => tc.id === id))
+            .filter(Boolean) ||
+          [],
+        testCaseIds:
+          b.testCaseIds ||
+          (b.testCases || []).map((tc: any) => tc.id),
+        estimatedDuration: b.estimatedDuration,
+        reasoning: b.reasoning,
+        testMode: b.testMode || "voice",
+        testModeReason: b.testModeReason,
+        confidenceScore: b.confidenceScore,
+      }));
+      setInlineBatches(normalised);
+      setInlineBatchName(
+        `${agent?.name || "Agent"} - ${new Date().toLocaleDateString()}`,
+      );
+    } catch (e: any) {
+      console.error("[inline batching] error:", e);
+      setInlineBatchError(e.message || "Failed to create batches");
+    } finally {
+      setIsRunningInlineBatching(false);
+    }
+  };
+
+  const saveInlineBatch = async () => {
+    if (!inlineBatches || inlineBatches.length === 0) return;
+    const name = inlineBatchName.trim();
+    if (!name) {
+      setInlineBatchError("Please enter a name for the batch plan");
+      return;
+    }
+    setIsSavingInlineBatch(true);
+    setInlineBatchError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const ids = Array.from(
+        new Set(
+          inlineBatches.flatMap((b: any) =>
+            (b.testCaseIds && b.testCaseIds.length
+              ? b.testCaseIds
+              : (b.testCases || []).map((tc: any) => tc.id)) as string[],
+          ),
+        ),
+      );
+      const res = await fetch(api.endpoints.testExecution.saveBatches, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agentId,
+          name,
+          batches: inlineBatches,
+          testCaseIds: ids,
+          isSecurity: false,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Failed to save batch");
+      }
+      // Reset inline state + refresh saved-batches list so it shows up in the tab.
+      setInlineBatches(null);
+      setShowInlineBatchSave(false);
+      setInlineBatchName("");
+      await fetchSavedBatches();
+    } catch (e: any) {
+      console.error("[inline batching] save error:", e);
+      setInlineBatchError(e.message || "Failed to save batch");
+    } finally {
+      setIsSavingInlineBatch(false);
+    }
+  };
+
+  const discardInlineBatches = () => {
+    setInlineBatches(null);
+    setInlineBatchError(null);
+    setShowInlineBatchSave(false);
+  };
+
+  // ---------------- Inline batching (Security tab) ----------------
+  const runSecurityBatching = async () => {
+    if (securityTestCases.length === 0) return;
+    setIsRunningSecurityBatching(true);
+    setSecurityBatchError(null);
+    setSecurityBatches(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+
+      const agentPrompt = agent?.prompt || "";
+      const agentFirstMessage =
+        (agent?.config as any)?.firstMessage ||
+        (agent?.config as any)?.first_message ||
+        (agent?.config as any)?.greeting ||
+        "";
+
+      const res = await fetch(api.endpoints.testExecution.analyzeForBatching, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          testCases: securityTestCases.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            scenario: tc.scenario,
+            userInput: tc.scenario,
+            expectedBehavior: tc.expectedOutcome,
+            expectedOutcome: tc.expectedOutcome,
+            category: tc.category,
+            keyTopic: (tc as any).keyTopic,
+            priority: tc.priority,
+            testMode: (tc as any).test_mode || "auto",
+            isSecurity: true,
+          })),
+          agentPrompt,
+          agentFirstMessage,
+          isSecurity: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Batching failed");
+      }
+      const data = await res.json();
+      if (!data.success || !data.batches) {
+        throw new Error("Batching returned no batches");
+      }
+
+      const normalised = data.batches.map((b: any, i: number) => ({
+        id: b.batchId?.toString() || `sec-batch-${i + 1}`,
+        name: b.name || `Security Batch ${i + 1}`,
+        testCases:
+          b.testCases ||
+          b.testCaseIds
+            ?.map((id: string) => securityTestCases.find((tc) => tc.id === id))
+            .filter(Boolean) ||
+          [],
+        testCaseIds:
+          b.testCaseIds ||
+          (b.testCases || []).map((tc: any) => tc.id),
+        estimatedDuration: b.estimatedDuration,
+        reasoning: b.reasoning,
+        testMode: b.testMode || "voice",
+        testModeReason: b.testModeReason,
+        confidenceScore: b.confidenceScore,
+      }));
+      setSecurityBatches(normalised);
+      setSecurityBatchName(
+        `${agent?.name || "Agent"} - Security - ${new Date().toLocaleDateString()}`,
+      );
+    } catch (e: any) {
+      console.error("[security batching] error:", e);
+      setSecurityBatchError(e.message || "Failed to create batches");
+    } finally {
+      setIsRunningSecurityBatching(false);
+    }
+  };
+
+  const saveSecurityBatch = async () => {
+    if (!securityBatches || securityBatches.length === 0) return;
+    const name = securityBatchName.trim();
+    if (!name) {
+      setSecurityBatchError("Please enter a name for the batch plan");
+      return;
+    }
+    setIsSavingSecurityBatch(true);
+    setSecurityBatchError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const ids = Array.from(
+        new Set(
+          securityBatches.flatMap((b: any) =>
+            (b.testCaseIds && b.testCaseIds.length
+              ? b.testCaseIds
+              : (b.testCases || []).map((tc: any) => tc.id)) as string[],
+          ),
+        ),
+      );
+      const res = await fetch(api.endpoints.testExecution.saveBatches, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agentId,
+          name,
+          batches: securityBatches,
+          testCaseIds: ids,
+          isSecurity: true,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Failed to save batch");
+      }
+      setSecurityBatches(null);
+      setShowSecurityBatchSave(false);
+      setSecurityBatchName("");
+      await fetchSavedBatches();
+    } catch (e: any) {
+      console.error("[security batching] save error:", e);
+      setSecurityBatchError(e.message || "Failed to save batch");
+    } finally {
+      setIsSavingSecurityBatch(false);
+    }
+  };
+
+  const discardSecurityBatches = () => {
+    setSecurityBatches(null);
+    setSecurityBatchError(null);
+    setShowSecurityBatchSave(false);
+  };
+
+  // Fetch security / compliance / consistency summaries for overview
+  const fetchOverviewSummaries = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
+      const [secRes, compRes, consRes] = await Promise.all([
+        fetch(api.endpoints.leakageTests.securitySummary(agentId), { headers }).catch(() => null),
+        fetch(api.endpoints.compliance.complianceSummary(agentId), { headers }).catch(() => null),
+        fetch(api.endpoints.consistencyTests.summary(agentId), { headers }).catch(() => null),
+      ]);
+      if (secRes && secRes.ok) { try { setSecuritySummary(await secRes.json()); } catch {} }
+      if (compRes && compRes.ok) { try { setComplianceSummary(await compRes.json()); } catch {} }
+      if (consRes && consRes.ok) { try { setConsistencySummary(await consRes.json()); } catch {} }
+    } catch (err) {
+      console.warn('[overview summaries] fetch failed:', err);
+    }
+  }, [agentId, getToken]);
 
   // Fetch test runs for this agent
   const fetchTestRuns = useCallback(async () => {
@@ -1405,7 +1751,8 @@ export default function AgentDetailPage() {
     fetchSavedBatches();
     fetchDynamicVariables();
     fetchKnowledgeBase();
-  }, [fetchAgent, fetchTestCases, fetchTestRuns, fetchSavedBatches, fetchDynamicVariables, fetchKnowledgeBase]);
+    fetchOverviewSummaries();
+  }, [fetchAgent, fetchTestCases, fetchTestRuns, fetchSavedBatches, fetchDynamicVariables, fetchKnowledgeBase, fetchOverviewSummaries]);
 
   // Analyze the prompt using backend AI
   const analyzePrompt = async (prompt: string, config: Record<string, any>) => {
@@ -2115,8 +2462,12 @@ export default function AgentDetailPage() {
       )}
 
       {/* Main Content */}
-      <Tabs defaultValue="config" className="space-y-4">
+      <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="overview">
+            <LayoutDashboard className="mr-2 h-4 w-4" />
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="config">
             <Settings className="mr-2 h-4 w-4" />
             Configuration
@@ -2152,6 +2503,369 @@ export default function AgentDetailPage() {
             Saved Batches
           </TabsTrigger>
         </TabsList>
+
+        {/* Overview Tab — analytics dashboard */}
+        <TabsContent value="overview" className="space-y-4">
+          {(() => {
+            const runs = testRuns || [];
+            const totalRuns = runs.length;
+            const completedRuns = runs.filter(r => r.status === 'completed').length;
+            const failedRuns = runs.filter(r => r.status === 'failed').length;
+            const runningRuns = runs.filter(r => r.status === 'running' || r.status === 'pending').length;
+            const cancelledRuns = runs.filter(r => r.status === 'cancelled').length;
+            const sumTotal = runs.reduce((s, r) => s + (r.total_tests || 0), 0);
+            const sumPassed = runs.reduce((s, r) => s + (r.passed_tests || 0), 0);
+            const sumFailed = runs.reduce((s, r) => s + (r.failed_tests || 0), 0);
+            const passRate = sumTotal > 0 ? Math.round((sumPassed / sumTotal) * 1000) / 10 : 0;
+            const latest = runs[0];
+            const cfg = (agent?.config || {}) as any;
+            const llmModel = cfg.llm_model || cfg.model || cfg?.llm?.model || '—';
+            const voice = cfg.voice_id || cfg.voice || cfg?.tts?.voice_id || '—';
+            const temperature = cfg.temperature ?? cfg?.llm?.temperature ?? '—';
+            const stage = (agent as any)?.lifecycle_stage || (agent as any)?.stage || 'development';
+
+            const secTotal = (securitySummary as any)?.total ?? (securitySummary as any)?.totalTests;
+            const secFailed = (securitySummary as any)?.failed;
+            const compScore = (complianceSummary as any)?.score ?? (complianceSummary as any)?.complianceScore;
+
+            // Chart data
+            const statusData = [
+              { name: 'Completed', value: completedRuns, color: '#10b981' },
+              { name: 'Failed', value: failedRuns, color: '#ef4444' },
+              { name: 'Running', value: runningRuns, color: '#3b82f6' },
+              { name: 'Cancelled', value: cancelledRuns, color: '#9ca3af' },
+            ].filter(d => d.value > 0);
+
+            const chronological = [...runs].reverse();
+            const trendData = chronological.map((r, i) => {
+              const rate = r.total_tests ? Math.round((r.passed_tests / r.total_tests) * 100) : 0;
+              const d = new Date(r.created_at);
+              return {
+                label: `#${i + 1}`,
+                date: `${d.getMonth() + 1}/${d.getDate()}`,
+                passed: r.passed_tests || 0,
+                failed: r.failed_tests || 0,
+                passRate: rate,
+              };
+            });
+
+            const recentBar = trendData.slice(-10);
+
+            return (
+              <>
+                {/* Hero KPI strip — gradient cards */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Test Runs</span>
+                        <Play className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{totalRuns}</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">
+                        {completedRuns} done · {runningRuns} active
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Pass Rate</span>
+                        <Target className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{passRate}%</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">{sumPassed}/{sumTotal} tests</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-rose-500 to-rose-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Failed Tests</span>
+                        <AlertCircle className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{sumFailed}</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">{failedRuns} failed runs</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Test Cases</span>
+                        <TestTube2 className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{savedTestCases.length}</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">saved on this agent</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-500 to-amber-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Security</span>
+                        <ShieldAlert className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{typeof secTotal === 'number' ? secTotal : '—'}</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">
+                        {typeof secFailed === 'number' ? `${secFailed} issues` : 'no data'}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="overflow-hidden border-0 bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide opacity-80">Compliance</span>
+                        <Shield className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <div className="text-3xl font-bold">{typeof compScore === 'number' ? `${Math.round(compScore)}%` : '—'}</div>
+                      <div className="text-[11px] opacity-80 mt-0.5">PII/PCI/PHI</div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Charts row 1: pass/fail trend area + status donut */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <Card className="lg:col-span-2">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-emerald-600" /> Pass / Fail Trend
+                      </CardTitle>
+                      <CardDescription>Test outcomes across the last {trendData.length} runs (chronological)</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {trendData.length === 0 ? (
+                        <div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground">
+                          No data yet
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={260}>
+                          <AreaChart data={trendData} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="gPassed" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+                                <stop offset="95%" stopColor="#10b981" stopOpacity={0.05} />
+                              </linearGradient>
+                              <linearGradient id="gFailed" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
+                                <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                            <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                              labelStyle={{ fontWeight: 600 }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 12 }} />
+                            <Area type="monotone" dataKey="passed" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#gPassed)" />
+                            <Area type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#gFailed)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4 text-indigo-600" /> Run Status
+                      </CardTitle>
+                      <CardDescription>Distribution of {totalRuns} test runs</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {statusData.length === 0 ? (
+                        <div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground">
+                          No runs yet
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={260}>
+                          <PieChart>
+                            <Pie
+                              data={statusData}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={55}
+                              outerRadius={85}
+                              paddingAngle={2}
+                            >
+                              {statusData.map((s) => (
+                                <Cell key={s.name} fill={s.color} stroke="#fff" strokeWidth={2} />
+                              ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                            <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Charts row 2: per-run bar + pass rate line */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <Card className="lg:col-span-2">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4 text-violet-600" /> Per-Run Breakdown
+                      </CardTitle>
+                      <CardDescription>Passed vs failed for the last {recentBar.length} runs</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {recentBar.length === 0 ? (
+                        <div className="h-[240px] flex items-center justify-center text-sm text-muted-foreground">
+                          No data yet
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={240}>
+                          <BarChart data={recentBar} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                            <Legend wrapperStyle={{ fontSize: 12 }} />
+                            <Bar dataKey="passed" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                            <Bar dataKey="failed" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Target className="h-4 w-4 text-emerald-600" /> Pass Rate Trend
+                      </CardTitle>
+                      <CardDescription>% passed per run</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {trendData.length === 0 ? (
+                        <div className="h-[240px] flex items-center justify-center text-sm text-muted-foreground">
+                          No data yet
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={240}>
+                          <AreaChart data={trendData} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="gRate" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.7} />
+                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                            <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} stroke="#9ca3af" unit="%" />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                              formatter={(v: any) => [`${v}%`, 'Pass rate']}
+                            />
+                            <Area type="monotone" dataKey="passRate" stroke="#6366f1" strokeWidth={2} fill="url(#gRate)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Recent runs + Configuration snapshot */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <Card className="lg:col-span-2">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Recent Test Runs</CardTitle>
+                      <CardDescription>Latest 5 executions</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {runs.length === 0 ? (
+                        <div className="text-sm text-muted-foreground text-center py-8">
+                          No test runs yet.{' '}
+                          <Link href={`/dashboard/test-runs/new?agent_id=${agentId}`} className="text-primary underline">
+                            Start your first run
+                          </Link>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {runs.slice(0, 5).map((r) => {
+                            const rate = r.total_tests ? Math.round((r.passed_tests / r.total_tests) * 100) : 0;
+                            const statusColor =
+                              r.status === 'completed' ? 'bg-green-500' :
+                              r.status === 'failed' ? 'bg-red-500' :
+                              r.status === 'running' ? 'bg-blue-500 animate-pulse' :
+                              r.status === 'cancelled' ? 'bg-gray-400' : 'bg-amber-500';
+                            return (
+                              <Link
+                                key={r.id}
+                                href={`/dashboard/test-runs/${r.id}`}
+                                className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/60 transition border"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className={`h-2 w-2 rounded-full shrink-0 ${statusColor}`} />
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-medium truncate">{r.name || 'Test Run'}</div>
+                                    <div className="text-[11px] text-muted-foreground">
+                                      {new Date(r.created_at).toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4 shrink-0">
+                                  <div className="text-right">
+                                    <div className="text-xs font-medium">{r.passed_tests}/{r.total_tests}</div>
+                                    <div className="text-[10px] text-muted-foreground">{rate}% pass</div>
+                                  </div>
+                                  <Badge variant="outline" className="text-[10px] capitalize">{r.status}</Badge>
+                                </div>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Settings className="h-4 w-4" /> Configuration
+                      </CardTitle>
+                      <CardDescription>Snapshot of current settings</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Provider</span><span className="font-medium capitalize">{agent?.provider}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Stage</span><Badge variant="outline" className="capitalize">{stage}</Badge></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Status</span><Badge variant={agent?.status === 'active' ? 'default' : 'secondary'} className="capitalize">{agent?.status}</Badge></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">LLM model</span><span className="font-medium truncate ml-2">{String(llmModel)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Voice</span><span className="font-medium truncate ml-2">{String(voice)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Temperature</span><span className="font-medium">{String(temperature)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Config versions</span><span className="font-medium">{configVersions.length}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Knowledge docs</span><span className="font-medium">{knowledgeBase.length}</span></div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Quick actions */}
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild>
+                    <Link href={`/dashboard/test-runs/new?agent_id=${agentId}`}>
+                      <Play className="mr-2 h-4 w-4" /> New Test Run
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href={`/dashboard/test-runs/new?agent_id=${agentId}&security=1`}>
+                      <ShieldAlert className="mr-2 h-4 w-4" /> New Security Run
+                    </Link>
+                  </Button>
+                  {latest && (
+                    <Button asChild variant="outline">
+                      <Link href={`/dashboard/test-runs/${latest.id}`}>
+                        <Eye className="mr-2 h-4 w-4" /> View latest run
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </TabsContent>
 
         {/* Configuration Tab */}
         <TabsContent value="config" className="space-y-4">
@@ -3262,9 +3976,197 @@ export default function AgentDetailPage() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
 
-        {/* Test Flow Tab - Full height */}
+          {/* ───── Inline Batching (bottom of Test Cases tab) ───── */}
+          {normalTestCases.length > 0 && (
+            <Card className="border-primary/30 bg-primary/[0.02]">
+              <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layers className="h-5 w-5 text-primary" />
+                    Create Batch Plan
+                  </CardTitle>
+                  <CardDescription>
+                    Group test cases into intelligent call batches so test runs execute
+                    faster and cheaper. Save the plan to reuse it from <span className="font-medium">Saved Batches</span>
+                    —you won&apos;t need to re-batch every test run.
+                  </CardDescription>
+                </div>
+                {!inlineBatches && (
+                  <Button
+                    onClick={runInlineBatching}
+                    disabled={isRunningInlineBatching}
+                    size="lg"
+                    className="shrink-0"
+                  >
+                    {isRunningInlineBatching ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Batching {normalTestCases.length} test cases...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Start Batching ({normalTestCases.length})
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              </CardHeader>
+
+              {(inlineBatches || inlineBatchError) && (
+              <CardContent className="space-y-4">
+                {inlineBatchError && (
+                  <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" /> {inlineBatchError}
+                  </div>
+                )}
+
+                {inlineBatches && inlineBatches.length > 0 && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{inlineBatches.length}</span>{" "}
+                        call{inlineBatches.length === 1 ? "" : "s"} planned from{" "}
+                        <span className="font-medium text-foreground">
+                          {inlineBatches.reduce(
+                            (s: number, b: any) => s + (b.testCases?.length || 0),
+                            0,
+                          )}
+                        </span>{" "}
+                        test case{normalTestCases.length === 1 ? "" : "s"}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={discardInlineBatches}
+                          disabled={isSavingInlineBatch}
+                        >
+                          <X className="mr-1 h-3.5 w-3.5" />
+                          Discard
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={runInlineBatching}
+                          disabled={isRunningInlineBatching || isSavingInlineBatch}
+                        >
+                          <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                          Re-batch
+                        </Button>
+                        {!showInlineBatchSave ? (
+                          <Button
+                            size="sm"
+                            onClick={() => setShowInlineBatchSave(true)}
+                          >
+                            <Save className="mr-1 h-3.5 w-3.5" />
+                            Save Batch Plan
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Save form */}
+                    {showInlineBatchSave && (
+                      <div className="rounded-md border bg-background p-3 space-y-2">
+                        <Label className="text-xs">Batch plan name</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={inlineBatchName}
+                            onChange={(e) => setInlineBatchName(e.target.value)}
+                            placeholder="e.g. Smoke Test Suite"
+                            autoFocus
+                            disabled={isSavingInlineBatch}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={saveInlineBatch}
+                            disabled={isSavingInlineBatch || !inlineBatchName.trim()}
+                          >
+                            {isSavingInlineBatch ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setShowInlineBatchSave(false)}
+                            disabled={isSavingInlineBatch}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Once saved, this plan will appear in the{" "}
+                          <span className="font-medium">Saved Batches</span> tab and on the new test run screen.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Batch list */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {inlineBatches.map((b: any, idx: number) => (
+                        <div
+                          key={b.id || idx}
+                          className="rounded-lg border bg-background p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Badge variant="outline" className="shrink-0">
+                                Call {idx + 1}
+                              </Badge>
+                              <span className="text-sm font-medium truncate">
+                                {b.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {b.testMode && (
+                                <Badge variant="secondary" className="text-[10px] capitalize">
+                                  {b.testMode}
+                                </Badge>
+                              )}
+                              <Badge variant="outline" className="text-[10px]">
+                                {b.testCases?.length || 0} tests
+                              </Badge>
+                            </div>
+                          </div>
+                          {b.reasoning && (
+                            <p className="text-[11px] text-muted-foreground line-clamp-2">
+                              {b.reasoning}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-1">
+                            {(b.testCases || []).slice(0, 6).map((tc: any) => (
+                              <span
+                                key={tc.id}
+                                className="text-[10px] bg-muted px-1.5 py-0.5 rounded truncate max-w-[140px]"
+                                title={tc.name}
+                              >
+                                {tc.name}
+                              </span>
+                            ))}
+                            {b.testCases && b.testCases.length > 6 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                +{b.testCases.length - 6} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+              )}
+            </Card>
+          )}
+        </TabsContent>
         <TabsContent value="testflow" className="mt-0">
           <TestFlowTab
             agentId={agentId}
@@ -3410,6 +4312,140 @@ export default function AgentDetailPage() {
         {/* Security Tab */}
         <TabsContent value="security" className="space-y-4">
           <SecurityTestPanel agentId={agentId} onChanged={fetchTestCases} />
+
+          {/* ───── Inline Security Batching ───── */}
+          {securityTestCases.length > 0 && (
+            <Card className="border-amber-500/30 bg-amber-500/[0.02]">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldAlert className="h-5 w-5 text-amber-600" />
+                      Create Security Batch Plan
+                    </CardTitle>
+                    <CardDescription>
+                      Group security test cases into intelligent call batches so security
+                      runs execute faster. Save the plan to reuse it from <span className="font-medium">Saved Batches</span>.
+                    </CardDescription>
+                  </div>
+                  {!securityBatches && (
+                    <Button
+                      onClick={runSecurityBatching}
+                      disabled={isRunningSecurityBatching}
+                      size="lg"
+                      className="shrink-0 bg-amber-600 hover:bg-amber-700"
+                    >
+                      {isRunningSecurityBatching ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Batching {securityTestCases.length} security tests...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Start Security Batching ({securityTestCases.length})
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+
+              {(securityBatches || securityBatchError) && (
+                <CardContent className="space-y-4">
+                  {securityBatchError && (
+                    <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" /> {securityBatchError}
+                    </div>
+                  )}
+
+                  {securityBatches && securityBatches.length > 0 && (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="text-muted-foreground">
+                          <span className="font-medium text-foreground">{securityBatches.length}</span>{" "}
+                          call{securityBatches.length === 1 ? "" : "s"} planned from{" "}
+                          <span className="font-medium text-foreground">
+                            {securityBatches.reduce(
+                              (s: number, b: any) => s + (b.testCases?.length || 0),
+                              0,
+                            )}
+                          </span>{" "}
+                          security test{securityTestCases.length === 1 ? "" : "s"}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={discardSecurityBatches} disabled={isSavingSecurityBatch}>
+                            <X className="mr-1 h-3.5 w-3.5" /> Discard
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={runSecurityBatching} disabled={isRunningSecurityBatching || isSavingSecurityBatch}>
+                            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Re-batch
+                          </Button>
+                          {!showSecurityBatchSave && (
+                            <Button size="sm" onClick={() => setShowSecurityBatchSave(true)} className="bg-amber-600 hover:bg-amber-700">
+                              <Save className="mr-1 h-3.5 w-3.5" /> Save Security Batch
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {showSecurityBatchSave && (
+                        <div className="rounded-md border bg-background p-3 space-y-2">
+                          <Label className="text-xs">Security batch plan name</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={securityBatchName}
+                              onChange={(e) => setSecurityBatchName(e.target.value)}
+                              placeholder="e.g. PII / Jailbreak Regression"
+                              autoFocus
+                              disabled={isSavingSecurityBatch}
+                            />
+                            <Button size="sm" onClick={saveSecurityBatch} disabled={isSavingSecurityBatch || !securityBatchName.trim()} className="bg-amber-600 hover:bg-amber-700">
+                              {isSavingSecurityBatch ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setShowSecurityBatchSave(false)} disabled={isSavingSecurityBatch}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            Once saved, this plan will appear in <span className="font-medium">Saved Batches</span> (Security filter) and on the new test run screen.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {securityBatches.map((b: any, idx: number) => (
+                          <div key={b.id || idx} className="rounded-lg border bg-background p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Badge variant="outline" className="shrink-0 border-amber-500/50 text-amber-700">Call {idx + 1}</Badge>
+                                <span className="text-sm font-medium truncate">{b.name}</span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {b.testMode && <Badge variant="secondary" className="text-[10px] capitalize">{b.testMode}</Badge>}
+                                <Badge variant="outline" className="text-[10px]">{b.testCases?.length || 0} tests</Badge>
+                              </div>
+                            </div>
+                            {b.reasoning && <p className="text-[11px] text-muted-foreground line-clamp-2">{b.reasoning}</p>}
+                            <div className="flex flex-wrap gap-1">
+                              {(b.testCases || []).slice(0, 6).map((tc: any) => (
+                                <span key={tc.id} className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={tc.name}>
+                                  {tc.name}
+                                </span>
+                              ))}
+                              {b.testCases && b.testCases.length > 6 && (
+                                <span className="text-[10px] text-muted-foreground">+{b.testCases.length - 6} more</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          )}
         </TabsContent>
 
         {/* Consistency Tab */}
@@ -3421,7 +4457,7 @@ export default function AgentDetailPage() {
         <TabsContent value="batches" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <Layers className="h-5 w-5" />
@@ -3431,37 +4467,89 @@ export default function AgentDetailPage() {
                     Pre-configured test batches for quick execution without regenerating each time
                   </CardDescription>
                 </div>
-                <Badge variant="secondary">{savedBatches.length} saved</Badge>
+                <div className="flex items-center gap-2">
+                  {/* Filter toggle */}
+                  <div className="inline-flex rounded-md border bg-muted/30 p-0.5 text-xs">
+                    {(['all', 'normal', 'security'] as const).map(k => (
+                      <button
+                        key={k}
+                        onClick={() => setSavedBatchesFilter(k)}
+                        className={`px-3 py-1 rounded transition capitalize ${
+                          savedBatchesFilter === k
+                            ? (k === 'security' ? 'bg-amber-500 text-white' : 'bg-primary text-primary-foreground')
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {k === 'all' ? 'All' : k === 'normal' ? 'Regular' : 'Security'}
+                      </button>
+                    ))}
+                  </div>
+                  <Badge variant="secondary">
+                    {savedBatches.filter(sb =>
+                      savedBatchesFilter === 'all' ? true :
+                      savedBatchesFilter === 'security' ? sb.is_security :
+                      !sb.is_security
+                    ).length} shown
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
-              {isLoadingBatches ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : savedBatches.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium">No saved batches yet</p>
-                  <p className="text-sm mt-1">Go to Test Cases tab, select test cases, and use &quot;Create Batches&quot; to generate optimized batch plans that you can save and reuse.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {savedBatches.map((sb) => (
-                      <div
-                        key={sb.id}
-                        className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                          activeSavedBatchId === sb.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
-                        }`}
-                        onClick={() => setActiveSavedBatchId(activeSavedBatchId === sb.id ? null : sb.id)}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium truncate">{sb.name}</span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
-                            className="text-muted-foreground hover:text-destructive ml-2"
-                          >
+              {(() => {
+                const visibleBatches = savedBatches.filter(sb =>
+                  savedBatchesFilter === 'all' ? true :
+                  savedBatchesFilter === 'security' ? sb.is_security :
+                  !sb.is_security
+                );
+                if (isLoadingBatches) {
+                  return (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  );
+                }
+                if (visibleBatches.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">
+                        {savedBatchesFilter === 'security' ? 'No security batches yet' :
+                         savedBatchesFilter === 'normal' ? 'No regular batches yet' :
+                         'No saved batches yet'}
+                      </p>
+                      <p className="text-sm mt-1">
+                        {savedBatchesFilter === 'security'
+                          ? 'Go to the Security tab and click "Start Security Batching" to create one.'
+                          : savedBatchesFilter === 'normal'
+                          ? 'Go to the Test Cases tab and click "Start Batching" to create one.'
+                          : 'Create batches from the Test Cases or Security tab to see them here.'}
+                      </p>
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {visibleBatches.map((sb) => (
+                        <div
+                          key={sb.id}
+                          className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                            sb.is_security ? 'border-amber-500/40 bg-amber-500/5' : ''
+                          } ${activeSavedBatchId === sb.id
+                            ? (sb.is_security ? 'ring-1 ring-amber-500' : 'border-primary bg-primary/5')
+                            : (sb.is_security ? 'hover:border-amber-500' : 'hover:border-primary/50')
+                          }`}
+                          onClick={() => setActiveSavedBatchId(activeSavedBatchId === sb.id ? null : sb.id)}
+                        >
+                          <div className="flex items-center justify-between mb-2 gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {sb.is_security && <ShieldAlert className="h-3.5 w-3.5 text-amber-600 shrink-0" />}
+                              <span className="text-sm font-medium truncate">{sb.name}</span>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
+                              className="text-muted-foreground hover:text-destructive ml-2 shrink-0"
+                            >
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
@@ -3521,8 +4609,8 @@ export default function AgentDetailPage() {
                         </p>
                         <div className="grid gap-2">
                           {activeBatch.batch_data.map((batch: any, idx: number) => (
-                            <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-md">
-                              <div className="flex flex-col">
+                            <div key={idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-md min-w-0 overflow-hidden">
+                              <div className="flex flex-col shrink-0">
                                 <button
                                   className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                                   disabled={idx === 0}
@@ -3536,13 +4624,33 @@ export default function AgentDetailPage() {
                                   aria-label="Move down"
                                 >▼</button>
                               </div>
-                              <Badge variant="outline" className="flex-shrink-0">Call {idx + 1}</Badge>
-                              <span className="text-sm text-muted-foreground truncate flex-1">
-                                {batch.testCases?.map((tc: any) => tc.name).join(', ') || `${batch.testCaseIds?.length || 0} test cases`}
-                              </span>
-                              {batch.testMode && <Badge variant="secondary" className="text-xs">{batch.testMode}</Badge>}
+                              <Badge variant="outline" className="shrink-0 mt-0.5">Call {idx + 1}</Badge>
+                              <div className="min-w-0 flex-1 flex flex-col gap-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {(batch.testCases || []).slice(0, 8).map((tc: any, i: number) => (
+                                    <span
+                                      key={tc.id || i}
+                                      className="text-[11px] bg-background border px-1.5 py-0.5 rounded truncate max-w-[180px]"
+                                      title={tc.name}
+                                    >
+                                      {tc.name}
+                                    </span>
+                                  ))}
+                                  {batch.testCases && batch.testCases.length > 8 && (
+                                    <span className="text-[11px] text-muted-foreground">
+                                      +{batch.testCases.length - 8} more
+                                    </span>
+                                  )}
+                                  {(!batch.testCases || batch.testCases.length === 0) && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {batch.testCaseIds?.length || 0} test cases
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {batch.testMode && <Badge variant="secondary" className="text-xs shrink-0">{batch.testMode}</Badge>}
                               <button
-                                className="text-muted-foreground hover:text-destructive"
+                                className="text-muted-foreground hover:text-destructive shrink-0"
                                 onClick={() => removeCall(idx)}
                                 aria-label="Remove call"
                               >
@@ -3555,7 +4663,8 @@ export default function AgentDetailPage() {
                     );
                   })()}
                 </>
-              )}
+                );
+              })()}
             </CardContent>
           </Card>
         </TabsContent>

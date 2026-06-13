@@ -323,7 +323,6 @@ export default function SettingsPage() {
       try {
         const token = await getToken();
         if (!token) {
-          console.log("No auth token available yet");
           return;
         }
         

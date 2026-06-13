@@ -61,6 +61,17 @@ interface ConsistencyRun {
   createdAt: string;
   completedAt: string | null;
   iterationResults?: IterationResult[];
+  mode?: 'single' | 'batch';
+  batchId?: string | null;
+  batchName?: string | null;
+  isSecurity?: boolean;
+  perTestCaseScores?: Array<{
+    testCaseId: string;
+    name: string;
+    score: number;
+    outlierCount: number;
+    clusters?: ResponseCluster[];
+  }> | null;
 }
 
 interface ConsistencySummary {
@@ -75,6 +86,14 @@ interface TestCase {
   id: string;
   name: string;
   category: string;
+  is_security_test?: boolean;
+}
+
+interface SavedBatch {
+  id: string;
+  name: string;
+  test_case_ids: string[] | null;
+  is_security: boolean;
 }
 
 interface ConsistencyTestPanelProps {
@@ -86,7 +105,11 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
   const [runs, setRuns] = useState<ConsistencyRun[]>([]);
   const [summary, setSummary] = useState<ConsistencySummary | null>(null);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [savedBatches, setSavedBatches] = useState<SavedBatch[]>([]);
+  const [mode, setMode] = useState<'single' | 'batch'>('single');
+  const [securityMode, setSecurityMode] = useState<'normal' | 'security'>('normal');
   const [selectedTestCase, setSelectedTestCase] = useState<string>('');
+  const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [iterations, setIterations] = useState<number>(30);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -98,10 +121,11 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
       const token = await getToken();
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [runsRes, summaryRes, testCasesRes] = await Promise.all([
+      const [runsRes, summaryRes, testCasesRes, batchesRes] = await Promise.all([
         fetch(api.endpoints.consistencyTests.list(agentId), { headers }),
         fetch(api.endpoints.consistencyTests.summary(agentId), { headers }),
         fetch(`${api.endpoints.agents.testCases(agentId)}`, { headers }),
+        fetch(api.endpoints.testExecution.savedBatches(agentId), { headers }),
       ]);
 
       if (runsRes.ok) {
@@ -115,9 +139,10 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
       if (testCasesRes.ok) {
         const data = await testCasesRes.json();
         setTestCases(data.testCases || []);
-        if (data.testCases?.length > 0 && !selectedTestCase) {
-          setSelectedTestCase(data.testCases[0].id);
-        }
+      }
+      if (batchesRes.ok) {
+        const data = await batchesRes.json();
+        setSavedBatches(data.batches || data.savedBatches || data || []);
       }
     } catch (error) {
       console.error('Error loading consistency data:', error);
@@ -131,27 +156,60 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
-  const runConsistencyTest = async () => {
-    if (!selectedTestCase) return;
+  // Filtered lists based on security toggle
+  const filteredTestCases = testCases.filter(tc =>
+    securityMode === 'security' ? !!tc.is_security_test : !tc.is_security_test
+  );
+  const filteredBatches = savedBatches.filter(b =>
+    securityMode === 'security' ? !!b.is_security : !b.is_security
+  );
 
+  // Reset selection when filters change
+  useEffect(() => {
+    if (mode === 'single') {
+      if (!filteredTestCases.find(tc => tc.id === selectedTestCase)) {
+        setSelectedTestCase(filteredTestCases[0]?.id || '');
+      }
+    } else {
+      if (!filteredBatches.find(b => b.id === selectedBatch)) {
+        setSelectedBatch(filteredBatches[0]?.id || '');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, securityMode, testCases, savedBatches]);
+
+  const runConsistencyTest = async () => {
     try {
       setRunning(true);
       const token = await getToken();
-      
+
+      const body: any = {
+        mode,
+        iterations,
+        isSecurity: securityMode === 'security',
+      };
+      if (mode === 'single') {
+        if (!selectedTestCase) return;
+        body.testCaseId = selectedTestCase;
+      } else {
+        if (!selectedBatch) return;
+        body.batchId = selectedBatch;
+      }
+
       const res = await fetch(api.endpoints.consistencyTests.start(agentId), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          testCaseId: selectedTestCase,
-          iterations,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
         await loadData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to start consistency test: ${err.error || res.statusText}`);
       }
     } catch (error) {
       console.error('Error running consistency test:', error);
@@ -269,26 +327,86 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
             Run Consistency Test
           </CardTitle>
           <CardDescription>
-            Test how consistently your agent responds to the same input
+            Test how consistently your agent responds across iterations. Works for single test cases or full batches, normal or security.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px] space-y-2">
-              <Label>Test Case</Label>
-              <Select value={selectedTestCase} onValueChange={setSelectedTestCase}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select test case" />
-                </SelectTrigger>
-                <SelectContent>
-                  {testCases.map((tc) => (
-                    <SelectItem key={tc.id} value={tc.id}>
-                      {tc.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        <CardContent className="space-y-4">
+          {/* Mode + Security toggles */}
+          <div className="flex flex-wrap gap-4">
+            <div className="space-y-2">
+              <Label>Mode</Label>
+              <div className="inline-flex rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('single')}
+                  className={`px-3 py-1 text-sm rounded ${mode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                >
+                  Single Test Case
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('batch')}
+                  className={`px-3 py-1 text-sm rounded ${mode === 'batch' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                >
+                  Batch
+                </button>
+              </div>
             </div>
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <div className="inline-flex rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSecurityMode('normal')}
+                  className={`px-3 py-1 text-sm rounded ${securityMode === 'normal' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSecurityMode('security')}
+                  className={`px-3 py-1 text-sm rounded ${securityMode === 'security' ? 'bg-red-600 text-white' : 'text-muted-foreground'}`}
+                >
+                  Security
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4 items-end">
+            {mode === 'single' ? (
+              <div className="flex-1 min-w-[240px] space-y-2">
+                <Label>Test Case ({filteredTestCases.length})</Label>
+                <Select value={selectedTestCase} onValueChange={setSelectedTestCase}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={filteredTestCases.length ? 'Select test case' : `No ${securityMode} test cases`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredTestCases.map((tc) => (
+                      <SelectItem key={tc.id} value={tc.id}>
+                        {tc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="flex-1 min-w-[240px] space-y-2">
+                <Label>Saved Batch ({filteredBatches.length})</Label>
+                <Select value={selectedBatch} onValueChange={setSelectedBatch}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={filteredBatches.length ? 'Select saved batch' : `No saved ${securityMode} batches`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredBatches.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name} ({(b.test_case_ids || []).length} tests)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="w-32 space-y-2">
               <Label>Iterations</Label>
               <Select value={iterations.toString()} onValueChange={(v) => setIterations(parseInt(v))}>
@@ -296,6 +414,7 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="5">5</SelectItem>
                   <SelectItem value="10">10</SelectItem>
                   <SelectItem value="20">20</SelectItem>
                   <SelectItem value="30">30</SelectItem>
@@ -305,7 +424,10 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
             </div>
             <Button
               onClick={runConsistencyTest}
-              disabled={running || !selectedTestCase}
+              disabled={
+                running ||
+                (mode === 'single' ? !selectedTestCase : !selectedBatch)
+              }
             >
               {running ? (
                 <>
@@ -324,6 +446,13 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
               Refresh
             </Button>
           </div>
+          {mode === 'batch' && selectedBatch && (
+            <p className="text-xs text-muted-foreground">
+              Each of the {filteredBatches.find(b => b.id === selectedBatch)?.test_case_ids?.length || 0} test cases
+              in this batch will be run {iterations} times.
+              Per-test-case scores will be reported separately.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -368,10 +497,27 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
                         ) : (
                           <XCircle className="h-5 w-5 text-red-500" />
                         )}
-                        <div>
-                          <div className="font-medium">{run.testCaseName || 'Consistency Test'}</div>
+                        <div className="min-w-0">
+                          <div className="font-medium flex items-center gap-2 flex-wrap">
+                            {run.mode === 'batch' ? (
+                              <>
+                                <Badge variant="outline">Batch</Badge>
+                                <span className="truncate">{run.batchName || 'Saved Batch'}</span>
+                              </>
+                            ) : (
+                              <span className="truncate">{run.testCaseName || 'Consistency Test'}</span>
+                            )}
+                            {run.isSecurity && (
+                              <Badge variant="destructive" className="text-[10px]">Security</Badge>
+                            )}
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            {run.iterations} iterations • {new Date(run.createdAt).toLocaleString()}
+                            {run.iterations} iterations
+                            {run.mode === 'batch' && run.perTestCaseScores?.length
+                              ? ` × ${run.perTestCaseScores.length} test cases`
+                              : ''}
+                            {' • '}
+                            {new Date(run.createdAt).toLocaleString()}
                           </div>
                         </div>
                       </div>
@@ -453,6 +599,29 @@ export function ConsistencyTestPanel({ agentId }: ConsistencyTestPanelProps) {
                           )}
                         </div>
                       </div>
+
+                      {/* Per-test-case breakdown for batch runs */}
+                      {run.mode === 'batch' && run.perTestCaseScores && run.perTestCaseScores.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <h4 className="font-medium text-sm">Per Test Case</h4>
+                          <div className="space-y-1 max-h-64 overflow-y-auto">
+                            {run.perTestCaseScores.map((pt) => (
+                              <div
+                                key={pt.testCaseId}
+                                className="flex items-center justify-between gap-2 p-2 bg-background rounded text-sm border"
+                              >
+                                <span className="truncate flex-1 min-w-0">{pt.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {pt.outlierCount} outliers
+                                </span>
+                                <Badge variant={getScoreBadgeVariant(pt.score)}>
+                                  {pt.score.toFixed(1)}%
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

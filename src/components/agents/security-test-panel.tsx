@@ -25,7 +25,18 @@ import {
   Trash2,
   Sparkles,
   Pencil,
+  ListChecks,
+  Search,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface SecurityTestCase {
   id: string;
@@ -157,6 +168,25 @@ export function SecurityTestPanel({
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Security-suite catalog picker
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogAdding, setCatalogAdding] = useState(false);
+  const [catalog, setCatalog] = useState<
+    Array<{
+      test_id: string;
+      name: string;
+      category: string;
+      keyTopic: string;
+      priority: 'high' | 'medium' | 'low';
+      security_test_type?: string;
+      scenario: string;
+      expectedOutcome: string;
+    }>
+  >([]);
+  const [catalogFilter, setCatalogFilter] = useState<string>('all');
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [form, setForm] = useState<Omit<SecurityTestCase, "id">>({
     name: "",
     scenario: "",
@@ -293,19 +323,94 @@ export function SecurityTestPanel({
   };
 
   const handleSeed = async () => {
-    setSeeding(true);
+    // Backward-compat: open the catalog dialog instead of bulk-adding all.
+    await openCatalog();
+  };
+
+  const openCatalog = async () => {
+    setCatalogOpen(true);
+    setPicked(new Set());
+    if (catalog.length > 0) return; // already loaded
+    setCatalogLoading(true);
     setError(null);
-    const existingNames = new Set(cases.map((c) => c.name));
-    const toAdd = STARTER_SECURITY_TESTS.filter((t) => !existingNames.has(t.name));
-    if (toAdd.length === 0) {
-      setSeeding(false);
-      return;
+    try {
+      const token = await getToken();
+      if (!token) {
+        setCatalogLoading(false);
+        return;
+      }
+      const res = await fetch(api.endpoints.testCases.securitySuite, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setError('Failed to load security suite catalog.');
+        setCatalogLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setCatalog(data.tests || []);
+    } catch (e) {
+      console.error('catalog load failed', e);
+      setError('Failed to load security suite catalog.');
+    } finally {
+      setCatalogLoading(false);
     }
-    const ok = await postCases(toAdd);
-    setSeeding(false);
-    if (ok) {
+  };
+
+  const togglePick = (testId: string) => {
+    setPicked((prev) => {
+      const n = new Set(prev);
+      if (n.has(testId)) n.delete(testId);
+      else n.add(testId);
+      return n;
+    });
+  };
+
+  const filteredCatalog = catalog.filter((t) => {
+    if (catalogFilter !== 'all' && t.category !== catalogFilter) return false;
+    if (catalogSearch.trim()) {
+      const q = catalogSearch.toLowerCase();
+      return (
+        t.name.toLowerCase().includes(q) ||
+        t.keyTopic.toLowerCase().includes(q) ||
+        t.test_id.toLowerCase().includes(q) ||
+        (t.security_test_type || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const categories = Array.from(new Set(catalog.map((t) => t.category))).sort();
+
+  const addPickedFromCatalog = async () => {
+    if (picked.size === 0) return;
+    setCatalogAdding(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(api.endpoints.testCases.securitySuiteAdd, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ agent_id: agentId, test_ids: Array.from(picked) }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setError(e.message || e.error || 'Failed to add selected security tests');
+        return;
+      }
+      setCatalogOpen(false);
+      setPicked(new Set());
       await fetchCases();
       onChanged?.();
+    } catch (e) {
+      console.error('catalog add failed', e);
+      setError('Failed to add selected security tests');
+    } finally {
+      setCatalogAdding(false);
     }
   };
 
@@ -449,13 +554,9 @@ export function SecurityTestPanel({
             <Plus className="mr-2 h-4 w-4" />
             Add Security Test
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSeed} disabled={seeding}>
-            {seeding ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
-            Add Starter Security Suite
+          <Button variant="outline" size="sm" onClick={openCatalog} disabled={seeding}>
+            <ListChecks className="mr-2 h-4 w-4" />
+            Browse Starter Security Suite (75)
           </Button>
           <Button
             variant="outline"
@@ -684,6 +785,160 @@ export function SecurityTestPanel({
           </div>
         </div>
       </CardContent>
+
+      {/* Security Suite Catalog Picker */}
+      <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-amber-600" />
+              Starter Security Suite ({catalog.length} tests)
+            </DialogTitle>
+            <DialogDescription>
+              Curated from the security spec. Pick the tests you want and add them to this
+              agent. You can re-open this at any time to add more.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={catalogSearch}
+                onChange={(e) => setCatalogSearch(e.target.value)}
+                placeholder="Search by name, test ID, or type..."
+                className="pl-8 h-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(['all', ...categories] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCatalogFilter(c as string)}
+                  className={`text-xs px-2 py-1 rounded border ${
+                    catalogFilter === c
+                      ? 'bg-amber-100 border-amber-400 text-amber-900'
+                      : 'bg-background hover:bg-muted'
+                  }`}
+                >
+                  {c === 'all' ? 'All' : c}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 ml-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setPicked(new Set(filteredCatalog.map((t) => t.test_id)))
+                }
+              >
+                Select all visible
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+                Clear
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto flex-1 -mx-6 px-6">
+            {catalogLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredCatalog.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground py-12">
+                No tests match your filter.
+              </div>
+            ) : (
+              <div className="space-y-2 py-2">
+                {filteredCatalog.map((t) => {
+                  const isPicked = picked.has(t.test_id);
+                  return (
+                    <div
+                      key={t.test_id}
+                      className={`flex items-start gap-3 p-3 rounded-md border ${
+                        isPicked
+                          ? 'bg-amber-50 border-amber-300'
+                          : 'bg-background hover:bg-muted/30'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={isPicked}
+                        onCheckedChange={() => togglePick(t.test_id)}
+                        className="mt-1"
+                      />
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => togglePick(t.test_id)}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            {t.test_id}
+                          </Badge>
+                          <span className="font-medium text-sm truncate">
+                            {t.keyTopic}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className={`text-[10px] ${
+                              t.priority === 'high'
+                                ? 'bg-red-100 text-red-800'
+                                : t.priority === 'medium'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {t.priority}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {t.category}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          {t.expectedOutcome}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t pt-3">
+            <div className="flex items-center justify-between w-full">
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{picked.size}</span> selected
+                {' · '}
+                {filteredCatalog.length} of {catalog.length} shown
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={() => setCatalogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={addPickedFromCatalog}
+                  disabled={picked.size === 0 || catalogAdding}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  {catalogAdding ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add {picked.size} {picked.size === 1 ? 'test' : 'tests'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

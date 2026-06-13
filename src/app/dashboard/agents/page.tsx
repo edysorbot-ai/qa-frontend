@@ -34,6 +34,24 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Plus,
   Loader2,
   Bot,
@@ -48,6 +66,8 @@ import {
   ArrowRight,
   Info,
   Wand2,
+  Eye,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -80,6 +100,7 @@ interface ConnectedAgent {
   status: "active" | "inactive" | "error";
   /** Item 17: maturity stage */
   lifecycle_stage?: "development" | "qa" | "uat" | "production";
+  test_run_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -279,6 +300,32 @@ export default function AgentsPage() {
     }
   };
 
+  // Delete agent
+  const [deleteTarget, setDeleteTarget] = useState<ConnectedAgent | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDeleteAgent = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(api.endpoints.agents.delete(deleteTarget.id), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok || res.status === 204) {
+        setConnectedAgents(prev => prev.filter(a => a.id !== deleteTarget.id));
+        setDeleteTarget(null);
+      } else {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || 'Failed to delete agent');
+      }
+    } catch (err) {
+      console.error('Delete agent error', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Fetch integrations when modal opens
   useEffect(() => {
     if (!showConnectModal) return;
@@ -460,6 +507,9 @@ export default function AgentsPage() {
         setConnectedAgents([data.agent, ...connectedAgents]);
         setShowConnectModal(false);
         resetModalState();
+      } else if (response.status === 409) {
+        const errorData = await response.json().catch(() => ({}));
+        setError(errorData.error || 'This agent is already connected.');
       } else {
         const errorData = await response.json();
         setError(errorData.error || "Failed to connect agent");
@@ -655,6 +705,17 @@ ${customConfig.agentType === "voice" ? "5. Confirm important information by repe
     });
   };
 
+  const formatDateTime = (dateString: string) => {
+    const d = new Date(dateString);
+    return d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
   if (isLoadingAgents) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -712,95 +773,141 @@ ${customConfig.agentType === "voice" ? "5. Confirm important information by repe
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {connectedAgents.map((agent) => (
-            <Card
-              key={agent.id}
-              className="cursor-pointer hover:shadow-md transition-shadow relative group"
-              onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
-            >
-              {/* Edit button for custom agents */}
-              {agent.provider === "custom" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditCustomDialog(agent);
-                  }}
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-[28%] py-3">Agent</TableHead>
+                <TableHead className="w-[14%]">Provider</TableHead>
+                <TableHead className="w-[16%]">Stage</TableHead>
+                <TableHead className="w-[18%]">Added</TableHead>
+                <TableHead className="w-[12%] text-center">Test Runs</TableHead>
+                <TableHead className="w-[12%] text-right pr-4">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {connectedAgents.map((agent) => (
+                <TableRow
+                  key={agent.id}
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
                 >
-                  <Edit className="h-4 w-4" />
-                </Button>
-              )}
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                      <Bot className="h-5 w-5 text-primary" />
+                  <TableCell className="py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                        <Bot className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{agent.name}</div>
+                        {agent.status !== "active" && (
+                          <div className={`text-xs ${agent.status === 'error' ? 'text-red-600' : 'text-zinc-500'}`}>
+                            {agent.status}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg">{agent.name}</CardTitle>
-                      <Badge
-                        variant="secondary"
-                        className={providerColors[agent.provider]}
-                      >
-                        {providerNames[agent.provider]}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
-                  <span>Connected {formatDate(agent.created_at)}</span>
-                </div>
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {/* Item 17: lifecycle stage selector */}
-                  <Select
-                    value={agent.lifecycle_stage || 'development'}
-                    onValueChange={(v) => updateLifecycleStage(agent.id, v as any)}
-                  >
-                    <SelectTrigger
-                      className={`h-7 px-2 text-xs gap-1 w-auto ${
-                        (agent.lifecycle_stage || 'development') === 'production'
-                          ? 'border-green-300 text-green-700 dark:text-green-400'
-                          : (agent.lifecycle_stage || 'development') === 'uat'
-                          ? 'border-blue-300 text-blue-700 dark:text-blue-400'
-                          : (agent.lifecycle_stage || 'development') === 'qa'
-                          ? 'border-amber-300 text-amber-700 dark:text-amber-400'
-                          : 'border-slate-300 text-slate-700 dark:text-slate-400'
-                      }`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="development">Development</SelectItem>
-                      <SelectItem value="qa">QA</SelectItem>
-                      <SelectItem value="uat">UAT</SelectItem>
-                      <SelectItem value="production">Production</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {agent.status !== "active" && (
-                    <Badge
-                      variant="outline"
-                      className={
-                        agent.status === "error"
-                          ? "text-red-600 border-red-300"
-                          : "text-gray-600 border-gray-300"
-                      }
-                    >
-                      {agent.status}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className={providerColors[agent.provider]}>
+                      {providerNames[agent.provider]}
                     </Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Select
+                      value={agent.lifecycle_stage || 'development'}
+                      onValueChange={(v) => updateLifecycleStage(agent.id, v as any)}
+                    >
+                      <SelectTrigger
+                        className={`h-8 px-2 text-xs gap-1 w-[140px] ${
+                          (agent.lifecycle_stage || 'development') === 'production'
+                            ? 'border-green-300 text-green-700'
+                            : (agent.lifecycle_stage || 'development') === 'uat'
+                            ? 'border-blue-300 text-blue-700'
+                            : (agent.lifecycle_stage || 'development') === 'qa'
+                            ? 'border-amber-300 text-amber-700'
+                            : 'border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="development">Development</SelectItem>
+                        <SelectItem value="qa">QA</SelectItem>
+                        <SelectItem value="uat">UAT</SelectItem>
+                        <SelectItem value="production">Production</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatDateTime(agent.created_at)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md bg-muted text-sm font-medium tabular-nums">
+                      {agent.test_run_count ?? 0}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right pr-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="View"
+                        onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      {agent.provider === "custom" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Edit"
+                          onClick={() => openEditCustomDialog(agent)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Delete"
+                        onClick={() => setDeleteTarget(agent)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete agent?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <span className="font-medium">{deleteTarget?.name}</span> and disconnect it from this workspace. Test cases and past runs are kept but will no longer link to a live agent. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAgent}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Connect Agent Modal */}
       <Dialog open={showConnectModal} onOpenChange={handleCloseModal}>
