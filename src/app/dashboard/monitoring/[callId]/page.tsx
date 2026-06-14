@@ -533,8 +533,16 @@ export default function CallDetailPage() {
   const userMood = moodEmoji(a?.sentiment?.user);
   const outcomeSuccess = callOverview.outcomeSuccess;
 
-  // Transcript filtering
-  const filteredTranscript = call.transcript
+  // Transcript filtering (sorted by timestamp so overlapping turns aren't mingled)
+  const sortedTranscript = [...call.transcript]
+    .map((e, idx) => ({ e, idx }))
+    .sort((a, b) => {
+      const ta = typeof a.e.timestamp === "number" ? a.e.timestamp : Number.MAX_SAFE_INTEGER;
+      const tb = typeof b.e.timestamp === "number" ? b.e.timestamp : Number.MAX_SAFE_INTEGER;
+      return ta === tb ? a.idx - b.idx : ta - tb;
+    })
+    .map((x) => x.e);
+  const filteredTranscript = sortedTranscript
     .map((e, idx) => ({ ...e, _idx: idx }))
     .filter((e) => {
       if (speakerFilter !== "all" && e.role !== speakerFilter) return false;
@@ -999,7 +1007,7 @@ export default function CallDetailPage() {
         ) : (
           <HorizontalConversationTimeline
             recordingUrl={recordingUrl}
-            transcript={call.transcript}
+            transcript={sortedTranscript}
             callStartMs={startMs}
             durationSeconds={call.duration_seconds || 0}
             toTimelineMs={toTimelineMs}
