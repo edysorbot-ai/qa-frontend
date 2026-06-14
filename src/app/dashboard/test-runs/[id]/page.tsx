@@ -2870,8 +2870,8 @@ export default function TestRunDetailPage() {
         </div>
       </div>
 
-      {/* t10: stage-aware lifecycle gate verdict + promotion */}
-      <LifecycleGateCard testRunId={testRunId} />
+      {/* t10: stage-aware lifecycle gate verdict + promotion - HIDDEN per user request (misleading on partial failures) */}
+      {/* <LifecycleGateCard testRunId={testRunId} /> */}
 
       {/* View Content based on viewMode */}
       {viewMode === "normal" &&

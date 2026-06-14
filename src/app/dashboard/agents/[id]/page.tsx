@@ -2539,7 +2539,9 @@ export default function AgentDetailPage() {
             ].filter(d => d.value > 0);
 
             const chronological = [...runs].reverse();
-            const trendData = chronological.map((r, i) => {
+            // Cap at last 15 runs (or 15 days) per user request
+            const cappedChrono = chronological.slice(-15);
+            const trendData = cappedChrono.map((r, i) => {
               const rate = r.total_tests ? Math.round((r.passed_tests / r.total_tests) * 100) : 0;
               const d = new Date(r.created_at);
               return {
@@ -2630,7 +2632,7 @@ export default function AgentDetailPage() {
                       <CardTitle className="text-base flex items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-emerald-600" /> Pass / Fail Trend
                       </CardTitle>
-                      <CardDescription>Test outcomes across the last {trendData.length} runs (chronological)</CardDescription>
+                      <CardDescription>Test outcomes across the last {trendData.length} runs (chronological, capped at 15)</CardDescription>
                     </CardHeader>
                     <CardContent className="pt-0">
                       {trendData.length === 0 ? (
@@ -2639,17 +2641,7 @@ export default function AgentDetailPage() {
                         </div>
                       ) : (
                         <ResponsiveContainer width="100%" height={260}>
-                          <AreaChart data={trendData} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="gPassed" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0.05} />
-                              </linearGradient>
-                              <linearGradient id="gFailed" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
-                              </linearGradient>
-                            </defs>
+                          <BarChart data={trendData} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                             <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#9ca3af" />
                             <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
@@ -2658,9 +2650,9 @@ export default function AgentDetailPage() {
                               labelStyle={{ fontWeight: 600 }}
                             />
                             <Legend wrapperStyle={{ fontSize: 12 }} />
-                            <Area type="monotone" dataKey="passed" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#gPassed)" />
-                            <Area type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#gFailed)" />
-                          </AreaChart>
+                            <Bar dataKey="passed" stackId="a" fill="#10b981" radius={[2, 2, 0, 0]} />
+                            <Bar dataKey="failed" stackId="a" fill="#ef4444" radius={[2, 2, 0, 0]} />
+                          </BarChart>
                         </ResponsiveContainer>
                       )}
                     </CardContent>
