@@ -3088,10 +3088,15 @@ export default function AgentDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {knowledgeBase.some((it: any) => it?.metadata?.not_attached_to_agent) && (
+                    <div className="mb-3 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+                      <strong>Heads up:</strong> these documents exist in your ElevenLabs workspace but are <strong>not attached to this agent</strong>. Open this agent in ElevenLabs &rarr; <em>Knowledge Base</em> section &rarr; attach the documents (and enable RAG if needed), then click Refresh here.
+                    </div>
+                  )}
                   {knowledgeBase.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                      className={`flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer ${(item as any).metadata?.not_attached_to_agent ? 'border-amber-200 bg-amber-50/40' : ''}`}
                       onClick={() => fetchDocumentContent(item)}
                     >
                       <div className="flex items-center gap-3">
@@ -3118,7 +3123,11 @@ export default function AgentDetailPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Badge variant="default" className="text-xs">active</Badge>
+                        {(item as any).metadata?.not_attached_to_agent ? (
+                          <Badge variant="outline" className="text-xs border-amber-300 text-amber-800 bg-amber-100/60">workspace only</Badge>
+                        ) : (
+                          <Badge variant="default" className="text-xs">active</Badge>
+                        )}
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); fetchDocumentContent(item); }}>
                           <Eye className="h-4 w-4" />
                         </Button>
