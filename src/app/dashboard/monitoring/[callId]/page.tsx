@@ -109,6 +109,23 @@ interface Analysis {
     toolsCalled?: Array<{ toolName: string; callCount?: number; success?: boolean; timing?: string }>;
   };
   conversationDynamics?: { interruptionCount?: number };
+  dataCapture?: {
+    fields: Array<{
+      fieldType: string;
+      fieldLabel: string;
+      userSaid: string;
+      asrCaptured: string;
+      agentConfirmed: string;
+      match: boolean;
+      severity: "critical" | "major" | "minor";
+      userTurnIndex?: number;
+      agentTurnIndex?: number;
+      explanation: string;
+    }>;
+    totalChecked: number;
+    mismatchCount: number;
+    validationScore: number;
+  };
 }
 
 interface ProductionCall {
@@ -880,6 +897,71 @@ export default function CallDetailPage() {
           )}
         </Panel>
       </div>
+
+      {/* Data Capture Validation - phone/date/currency/card/email mismatches */}
+      {a?.dataCapture && (a.dataCapture.totalChecked > 0 || a.dataCapture.fields.length > 0) && (
+        <Panel
+          title="Data Capture Validation"
+          tooltip="Compares what the user said vs what the agent confirmed back for structured fields (phone, date, currency, card, email, OTP, etc)."
+        >
+          <div className="flex items-center justify-between mb-3 pb-3 border-b border-zinc-100">
+            <div className="flex items-center gap-3">
+              <div className={`text-2xl font-bold tabular-nums ${
+                a.dataCapture.validationScore >= 90 ? "text-emerald-600" :
+                a.dataCapture.validationScore >= 70 ? "text-amber-600" : "text-red-600"
+              }`}>
+                {a.dataCapture.validationScore}<span className="text-sm text-zinc-400">/100</span>
+              </div>
+              <div className="text-xs text-zinc-600 leading-tight">
+                <div><span className="font-semibold">{a.dataCapture.totalChecked}</span> fields checked</div>
+                <div className={a.dataCapture.mismatchCount > 0 ? "text-red-600 font-semibold" : "text-emerald-600"}>
+                  {a.dataCapture.mismatchCount} mismatch{a.dataCapture.mismatchCount === 1 ? "" : "es"}
+                </div>
+              </div>
+            </div>
+          </div>
+          {a.dataCapture.fields.length === 0 ? (
+            <p className="text-sm text-zinc-500">No structured values confirmed back in this call.</p>
+          ) : (
+            <div className="space-y-2">
+              {a.dataCapture.fields.map((f, i) => {
+                const ok = f.match;
+                const sevPill = !ok
+                  ? (f.severity === "critical" ? "bg-red-500" : f.severity === "major" ? "bg-amber-500" : "bg-zinc-400")
+                  : "bg-emerald-500";
+                return (
+                  <div key={i} className={`rounded-lg border p-3 ${ok ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-200"}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded text-white ${sevPill}`}>
+                        {ok ? "Match" : f.severity}
+                      </span>
+                      <span className="text-xs font-semibold capitalize">{f.fieldLabel || f.fieldType}</span>
+                      {ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+                      <div className="bg-white/70 rounded p-2 border border-zinc-100">
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">1. User said</div>
+                        <div className="text-zinc-800 font-mono break-all">{f.userSaid || "—"}</div>
+                      </div>
+                      <div className="bg-white/70 rounded p-2 border border-zinc-100">
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">2. ASR captured</div>
+                        <div className="text-zinc-800 font-mono break-all">{f.asrCaptured || "—"}</div>
+                      </div>
+                      <div className={`bg-white/70 rounded p-2 border ${ok ? "border-emerald-200" : "border-red-200"}`}>
+                        <div className={`text-[9px] uppercase tracking-wider font-semibold mb-0.5 ${ok ? "text-emerald-600" : "text-red-600"}`}>3. Agent confirmed</div>
+                        <div className={`font-mono break-all ${ok ? "text-emerald-800" : "text-red-700 font-bold"}`}>{f.agentConfirmed || "—"}</div>
+                      </div>
+                    </div>
+                    {!ok && f.explanation && (
+                      <p className="text-[11px] text-red-700 mt-2 leading-snug">{f.explanation}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* Voice Quality Analytics */}
       <Panel title="Voice Quality Analytics" tooltip="Audio-derived metrics. Click Analyze Audio to compute from the recording.">
