@@ -176,6 +176,7 @@ interface TestCase {
   test_mode?: 'voice' | 'chat' | 'auto';  // Testing mode - voice, chat, or auto-detect
   is_security_test?: boolean;
   security_test_type?: string;
+  created_via?: string;
 }
 
 interface DynamicVariable {
@@ -399,6 +400,8 @@ export default function AgentDetailPage() {
   // Saved Batches state
   const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: any[]; test_case_ids: string[]; created_at: string; is_security?: boolean }>>([]);
   const [runningSavedBatchId, setRunningSavedBatchId] = useState<string | null>(null);
+  const [startedTestRun, setStartedTestRun] = useState<{ id: string; name?: string } | null>(null);
+  const [isRunningArchetypeEval, setIsRunningArchetypeEval] = useState(false);
   const [isLoadingBatches, setIsLoadingBatches] = useState(false);
   const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
 
@@ -672,12 +675,108 @@ export default function AgentDetailPage() {
       });
 
       if (res.ok) {
-        router.push(`/dashboard/test-runs/${testRun.id}`);
+        // Don't navigate away — show inline banner so user stays on agent page (#2).
+        setStartedTestRun({ id: testRun.id, name: testRun.name });
+        try { await fetchTestRuns(); } catch {}
       }
     } catch (error) {
       console.error("Failed to run saved batch:", error);
     } finally {
       setRunningSavedBatchId(null);
+    }
+  };
+
+  // #10 Archetype Evaluation: generate (if needed) + run all archetype-based
+  // test cases as a single evaluation. Results group by category/key_topic on
+  // the existing test-run detail view.
+  const runArchetypeEvaluation = async () => {
+    if (isRunningArchetypeEval) return;
+    setIsRunningArchetypeEval(true);
+    try {
+      const token = await getToken();
+      if (!agent) return;
+
+      // 1) Ensure we have archetype test cases — if not, generate the full set.
+      let archetypeCases = savedTestCases.filter(tc => tc.created_via === 'archetype');
+      if (archetypeCases.length === 0) {
+        const genRes = await fetch(
+          `${api.baseUrl}/api/agents/${agentId}/generate-test-cases-from-archetypes`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ preview: false }),
+          },
+        );
+        if (!genRes.ok) {
+          const err = await genRes.text();
+          throw new Error(`Failed to generate archetype test cases: ${err}`);
+        }
+        const genData = await genRes.json();
+        const newCases = genData.testCases || [];
+        if (newCases.length > 0) {
+          setSavedTestCases(prev => [...prev, ...newCases]);
+          archetypeCases = newCases;
+        }
+      }
+
+      if (archetypeCases.length === 0) {
+        setError('No archetype test cases available to evaluate');
+        return;
+      }
+
+      // 2) Create the test run
+      const runRes = await fetch(api.endpoints.testRuns.create, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: `Archetype Evaluation - ${new Date().toLocaleString()}`,
+          agent_id: agentId,
+          test_case_ids: archetypeCases.map(tc => tc.id),
+        }),
+      });
+      if (!runRes.ok) throw new Error('Failed to create test run');
+      const { testRun } = await runRes.json();
+
+      // 3) Execute as a single batch (group by archetype category for sensible
+      //    sub-batching: archetypes with the same category run together).
+      const byCategory: Record<string, string[]> = {};
+      for (const tc of archetypeCases) {
+        const key = tc.category || 'General';
+        byCategory[key] = byCategory[key] || [];
+        byCategory[key].push(tc.id);
+      }
+      const callBatches = Object.entries(byCategory).map(([cat, ids]) => ({
+        testCaseIds: ids,
+        reasoning: `Archetype evaluation — ${cat}`,
+        testMode: 'chat' as const,
+      }));
+
+      const execRes = await fetch(api.endpoints.testExecution.startBatched, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ testRunId: testRun.id, callBatches }),
+      });
+
+      if (execRes.ok) {
+        setStartedTestRun({ id: testRun.id, name: testRun.name });
+        try { await fetchTestRuns(); } catch {}
+      } else {
+        throw new Error('Failed to start archetype evaluation');
+      }
+    } catch (error: any) {
+      console.error('Failed to run archetype evaluation:', error);
+      setError(error?.message || 'Failed to run archetype evaluation');
+    } finally {
+      setIsRunningArchetypeEval(false);
     }
   };
 
@@ -1705,8 +1804,9 @@ export default function AgentDetailPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Navigate to the test run page
-        router.push(`/dashboard/test-runs/${data.testRun.id}`);
+        // #2: stay on agent page; show inline banner with link to results.
+        setStartedTestRun({ id: data.testRun.id, name: data.testRun.name });
+        try { await fetchTestRuns(); } catch {}
       } else {
         throw new Error("Failed to start workflow test run");
       }
@@ -2436,6 +2536,37 @@ export default function AgentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {startedTestRun && (
+        <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-900 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <div>
+              <div className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                Test run started{startedTestRun.name ? `: ${startedTestRun.name}` : ''}
+              </div>
+              <div className="text-xs text-blue-700 dark:text-blue-300">
+                Running in the background. You can stay here — results will appear in the Test Runs tab.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => router.push(`/dashboard/test-runs/${startedTestRun.id}`)}
+            >
+              View Results
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setStartedTestRun(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -3681,6 +3812,20 @@ export default function AgentDetailPage() {
                     >
                       <Upload className="mr-2 h-4 w-4" />
                       Import CSV
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={runArchetypeEvaluation}
+                      disabled={isRunningArchetypeEval}
+                      title="Generate (if needed) and run all archetype-based test cases as one evaluation"
+                    >
+                      {isRunningArchetypeEval ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Layers className="mr-2 h-4 w-4" />
+                      )}
+                      Run Archetype Evaluation
                     </Button>
                   </div>
                 </div>
