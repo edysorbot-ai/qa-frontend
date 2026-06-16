@@ -121,7 +121,7 @@ interface TestResult {
   expectedResponse: string;
   actualResponse: string;
   category: string;
-  status: "passed" | "failed" | "inconclusive" | "pending" | "running";
+  status: "passed" | "failed" | "inconclusive" | "pending" | "running" | "untested";
   latencyMs: number;
   durationMs?: number;
   batchId?: string;
@@ -738,6 +738,7 @@ const statusColors: Record<string, string> = {
   passed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
   inconclusive: "bg-amber-100 text-amber-800",
+  untested: "bg-slate-100 text-slate-700 border border-slate-300",
   pending: "bg-slate-100 text-slate-700",
   running: "bg-slate-200 text-slate-800 animate-pulse",
   completed: "bg-green-100 text-green-800",
@@ -749,7 +750,9 @@ const statusColors: Record<string, string> = {
 // to inject the test scenario into the conversation. The verdict is shown as
 // "TEST AGENT FAILED" so the production agent isn't penalised.
 const statusLabel = (s: string) =>
-  s === 'inconclusive' ? 'TEST AGENT FAILED' : s.toUpperCase();
+  s === 'inconclusive' ? 'TEST AGENT FAILED' :
+  s === 'untested' ? 'UNTESTED' :
+  s.toUpperCase();
 
 // Helper function to format dates
 const formatDate = (dateString: string) => {
@@ -835,7 +838,7 @@ export default function TestRunDetailPage() {
   const [viewMode, setViewMode] = useState<"normal" | "detailed" | "agent">(
     "normal",
   );
-  const [statusFilter, setStatusFilter] = useState<"all" | "passed" | "failed">(
+  const [statusFilter, setStatusFilter] = useState<"all" | "passed" | "failed" | "untested">(
     "all",
   );
 
@@ -966,6 +969,8 @@ export default function TestRunDetailPage() {
           toast.success('Saved — future runs will flag similar responses as failures');
         }
         setFeedbackDialogOpen(false);
+        // Refresh results so the user sees the updated marker on the row.
+        try { await fetchResults(); } catch {}
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data?.error || 'Failed to save feedback');
@@ -2022,6 +2027,16 @@ export default function TestRunDetailPage() {
                       </h3>
 
                       <div className="space-y-2 text-xs">
+                        {result.scenario && result.scenario !== result.userInput && (
+                          <div>
+                            <span className="text-muted-foreground">
+                              Scenario:{" "}
+                            </span>
+                            <span className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                              {result.scenario}
+                            </span>
+                          </div>
+                        )}
                         <div>
                           <span className="text-muted-foreground">
                             Expected:{" "}
@@ -2091,9 +2106,9 @@ export default function TestRunDetailPage() {
                             <Badge
                               variant="outline"
                               className="text-[10px] border-purple-300 text-purple-700 dark:text-purple-400"
-                              title={`Redacted before sending to LLM: ${result.metrics.piiRedaction.typesRedacted.join(', ')}`}
+                              title={`Masked only in the copy sent to the evaluator LLM (the displayed transcript is unchanged). Types: ${result.metrics.piiRedaction.typesRedacted.join(', ')}`}
                             >
-                              PII redacted ×{result.metrics.piiRedaction.redactionCount}
+                              PII masked for LLM ×{result.metrics.piiRedaction.redactionCount}
                             </Badge>
                           ) : null}
                           {/* Item 28: sensitive content flags */}
@@ -2208,16 +2223,23 @@ export default function TestRunDetailPage() {
                       {/* Mark as False Positive — passed tests the user thinks should have failed */}
                       {result.status === "passed" && (
                         <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 gap-1"
-                            onClick={(e) => { e.stopPropagation(); openFalseFeedbackDialog(result.id, 'false_positive'); }}
-                            title="This test passed but the agent's response was actually wrong. Future runs will learn from this."
-                          >
-                            <AlertTriangle className="h-3 w-3" />
-                            Mark as False Positive
-                          </Button>
+                          {(result as any).isFalseNegative ? (
+                            <Badge variant="outline" className="text-[10px] gap-1 self-center border-red-300 text-red-700">
+                              <AlertTriangle className="h-3 w-3" />
+                              Marked False Positive
+                            </Badge>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 gap-1"
+                              onClick={(e) => { e.stopPropagation(); openFalseFeedbackDialog(result.id, 'false_positive'); }}
+                              title="This test passed but the agent's response was actually wrong. Future runs will learn from this."
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Mark as False Positive
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -3086,6 +3108,19 @@ export default function TestRunDetailPage() {
                   Failed
                   <Badge variant="secondary" className="ml-2 h-5 px-1.5">
                     {results?.results?.filter((r) => r.status === "failed")
+                      .length || 0}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={statusFilter === "untested" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setStatusFilter("untested")}
+                  className="h-8 px-3"
+                >
+                  <Clock className="h-4 w-4 mr-1 text-slate-500" />
+                  Untested
+                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                    {results?.results?.filter((r) => r.status === "untested")
                       .length || 0}
                   </Badge>
                 </Button>

@@ -32,6 +32,14 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   ArrowLeft,
   Bot,
   Settings,
@@ -390,6 +398,7 @@ export default function AgentDetailPage() {
 
   // Saved Batches state
   const [savedBatches, setSavedBatches] = useState<Array<{ id: string; name: string; batch_data: any[]; test_case_ids: string[]; created_at: string; is_security?: boolean }>>([]);
+  const [runningSavedBatchId, setRunningSavedBatchId] = useState<string | null>(null);
   const [isLoadingBatches, setIsLoadingBatches] = useState(false);
   const [activeSavedBatchId, setActiveSavedBatchId] = useState<string | null>(null);
 
@@ -625,6 +634,8 @@ export default function AgentDetailPage() {
 
   // Run a saved batch
   const runSavedBatch = async (savedBatch: typeof savedBatches[0]) => {
+    if (runningSavedBatchId) return;
+    setRunningSavedBatchId(savedBatch.id);
     try {
       const token = await getToken();
       if (!agent) return;
@@ -665,6 +676,8 @@ export default function AgentDetailPage() {
       }
     } catch (error) {
       console.error("Failed to run saved batch:", error);
+    } finally {
+      setRunningSavedBatchId(null);
     }
   };
 
@@ -3628,32 +3641,34 @@ export default function AgentDetailPage() {
                       <span className="mr-2 text-xs font-bold">{"{X}"}</span>
                       Dynamic Variables
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAddForm(true)}
-                      disabled={showAddForm}
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Test Case
-                    </Button>
-                    <Button variant="outline" onClick={handleGenerateTestCases} disabled={isGeneratingTests || isGeneratingFromArchetypes}>
-                      {isGeneratingTests && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Generate More (AI)
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleGenerateFromArchetypes}
-                      disabled={isGeneratingTests || isGeneratingFromArchetypes}
-                      title="Pre-defined archetype catalog: deterministic test categories with LLM-filled context only."
-                    >
-                      {isGeneratingFromArchetypes && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      From Archetypes
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" disabled={isGeneratingTests || isGeneratingFromArchetypes || showAddForm}>
+                          {(isGeneratingTests || isGeneratingFromArchetypes) ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="mr-2 h-4 w-4" />
+                          )}
+                          Add Test Case
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuLabel>Choose how to add</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleGenerateTestCases} disabled={isGeneratingTests || isGeneratingFromArchetypes}>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Create new with AI
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleGenerateFromArchetypes} disabled={isGeneratingTests || isGeneratingFromArchetypes}>
+                          <Layers className="mr-2 h-4 w-4" />
+                          Create from Archetypes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setShowAddForm(true)} disabled={showAddForm}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Manually
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       variant="outline"
                       size="sm"
@@ -3826,7 +3841,7 @@ export default function AgentDetailPage() {
                           const rows: React.ReactNode[] = [];
                           categoryGroups.forEach((cases, category) => {
                             cases.forEach((tc, idx) => {
-                              const isEditing = editingTestCaseId === tc.id;
+                              const isEditing = false;
                               rows.push(
                                 <tr key={tc.id} className={`
                                   ${idx === 0 ? 'border-t-2 border-t-border' : ''} 
@@ -4566,13 +4581,32 @@ export default function AgentDetailPage() {
                               {sb.is_security && <ShieldAlert className="h-3.5 w-3.5 text-amber-600 shrink-0" />}
                               <span className="text-sm font-medium truncate">{sb.name}</span>
                             </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
-                              className="text-muted-foreground hover:text-destructive ml-2 shrink-0"
-                            >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="h-7 px-2 text-xs"
+                                onClick={(e) => { e.stopPropagation(); runSavedBatch(sb); }}
+                                disabled={runningSavedBatchId === sb.id}
+                                title="Run this batch as a test run"
+                              >
+                                {runningSavedBatchId === sb.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <>
+                                    <Play className="h-3.5 w-3.5 mr-1" />
+                                    Run
+                                  </>
+                                )}
+                              </Button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteSavedBatch(sb.id); }}
+                                className="text-muted-foreground hover:text-destructive ml-1"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{sb.batch_data.length} calls</span>
                           <span>&bull;</span>
@@ -4771,6 +4805,79 @@ export default function AgentDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Test Case Dialog (#6) */}
+      <Dialog open={editingTestCaseId !== null} onOpenChange={(open) => { if (!open) handleCancelEditTestCase(); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Test Case</DialogTitle>
+            <DialogDescription>Update the test case scenario, expected outcome, and priority.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Name *</Label>
+              <Input
+                value={editTestCase.name}
+                onChange={(e) => setEditTestCase({ ...editTestCase, name: e.target.value })}
+                placeholder="Test case name"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Category</Label>
+              <Input
+                value={editTestCase.category}
+                onChange={(e) => setEditTestCase({ ...editTestCase, category: e.target.value })}
+                placeholder="Category"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Scenario *</Label>
+              <textarea
+                value={editTestCase.scenario}
+                onChange={(e) => setEditTestCase({ ...editTestCase, scenario: e.target.value })}
+                placeholder="Describe the test scenario"
+                rows={3}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Expected Outcome *</Label>
+              <textarea
+                value={editTestCase.expectedOutcome}
+                onChange={(e) => setEditTestCase({ ...editTestCase, expectedOutcome: e.target.value })}
+                placeholder="What should the agent do?"
+                rows={3}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Priority</Label>
+              <Select
+                value={editTestCase.priority}
+                onValueChange={(v) => setEditTestCase({ ...editTestCase, priority: v as "high" | "medium" | "low" })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelEditTestCase}>Cancel</Button>
+            <Button
+              onClick={handleSaveEditTestCase}
+              disabled={!editTestCase.name || !editTestCase.scenario || !editTestCase.expectedOutcome}
+            >
+              <Check className="mr-2 h-4 w-4" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* CSV Import Dialog */}
       <Dialog open={showCSVImportDialog} onOpenChange={setShowCSVImportDialog}>
